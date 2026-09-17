@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="CRM BGH — Sistema Operativo de Gestión de Casos">
+    <title>{% block title %}CRM BGH{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="sf-body">
+    {% if current_user.is_authenticated %}
+    <div class="sf-app">
+        <!-- Salesforce Global Header -->
+        <header class="sf-global-header">
+            <div class="sf-header-left">
+                <a href="{{ url_for('dashboard.index') }}" class="sf-brand">
+                    <div class="sf-brand-logo">B</div>
+                    <div class="sf-brand-text">
+                        <span class="sf-brand-title">CRM BGH</span>
+                        <span class="sf-brand-subtitle">Service Cloud</span>
+                    </div>
+                </a>
+            </div>
+
+            <!-- Global Universal Search Bar -->
+            <div class="sf-header-center">
+                <form action="{{ url_for('dashboard.buscar_global') }}" method="GET" class="sf-global-search-form">
+                    <div class="sf-search-input-wrapper">
+                        <span class="sf-search-icon">🔍</span>
+                        <input type="text" name="q" id="global-search-input" class="sf-search-input"
+                               placeholder="Buscar por N° Pedido, DNI, Tracking, SAP, Cliente, Salesforce ID o palabra clave..."
+                               value="{{ request.args.get('q', '') }}" autocomplete="off">
+                        <span class="sf-search-shortcut" title="Atajo: Presiona / para buscar">/</span>
+                    </div>
+                </form>
+            </div>
+
+            <!-- User profile and actions -->
+            <div class="sf-header-right">
+                <div class="sf-user-chip">
+                    <div class="sf-user-avatar">{{ current_user.display_name[0]|upper }}</div>
+                    <div class="sf-user-info">
+                        <span class="sf-user-name">{{ current_user.display_name }}</span>
+                        <span class="sf-role-badge" style="background: {{ current_user.role_badge_color }}22; color: {{ current_user.role_badge_color }}; border: 1px solid {{ current_user.role_badge_color }}44;">
+                            {{ current_user.role_label }}
+                        </span>
+                    </div>
+                </div>
+                <a href="{{ url_for('auth.logout') }}" class="sf-btn-logout" title="Cerrar sesión">⏻</a>
+            </div>
+        </header>
+
+        <!-- Salesforce Tab Navigation Bar -->
+        <nav class="sf-tab-nav">
+            <div class="sf-tabs-container">
+                <a href="{{ url_for('dashboard.index', view='todos') }}"
+                   class="sf-tab {% if request.endpoint == 'dashboard.index' and request.args.get('view') != 'asignados' %}active{% endif %}">
+                    <span class="sf-tab-icon">📋</span>
+                    <span>Todos los Casos</span>
+                </a>
+
+                <a href="{{ url_for('dashboard.index', view='asignados') }}"
+                   class="sf-tab {% if request.endpoint == 'dashboard.index' and request.args.get('view') == 'asignados' %}active{% endif %}">
+                    <span class="sf-tab-icon">👤</span>
+                    <span>Casos Asignados</span>
+                    {% if my_assigned_cases_count and my_assigned_cases_count > 0 %}
+                    <span class="sf-tab-badge" title="{{ my_assigned_cases_count }} casos activos asignados">{{ my_assigned_cases_count }}</span>
+                    {% endif %}
+                </a>
+
+                {% if current_user.can_create_cases %}
+                <a href="{{ url_for('front.nuevo_caso') }}"
+                   class="sf-tab {% if request.endpoint == 'front.nuevo_caso' %}active{% endif %}">
+                    <span class="sf-tab-icon">➕</span>
+                    <span>Nuevo Caso</span>
+                </a>
+                {% endif %}
+
+                {% if current_user.is_front_office or current_user.is_admin or current_user.is_supervisor %}
+                <a href="{{ url_for('front.bandeja_front') }}"
+                   class="sf-tab {% if request.endpoint == 'front.bandeja_front' %}active{% endif %}">
+                    <span class="sf-tab-icon">📥</span>
+                    <span>Bandeja Front</span>
+                </a>
+                {% endif %}
+
+                {% if current_user.can_export_reports %}
+                <a href="{{ url_for('reports.index') }}"
+                   class="sf-tab {% if 'reports' in request.endpoint|default('') %}active{% endif %}">
+                    <span class="sf-tab-icon">📊</span>
+                    <span>Informes y Reportes</span>
+                </a>
+                {% endif %}
+
+                {% if current_user.can_audit_quality %}
+                <a href="{{ url_for('quality.dashboard_calidad') }}"
+                   class="sf-tab {% if 'quality' in request.endpoint|default('') %}active{% endif %}">
+                    <span class="sf-tab-icon">⭐</span>
+                    <span>Calidad (TYQ)</span>
+                </a>
+                {% endif %}
+
+                {% if current_user.can_manage_users %}
+                <div class="sf-tab-dropdown">
+                    <a href="{{ url_for('admin.usuarios') }}"
+                       class="sf-tab {% if 'admin' in request.endpoint|default('') %}active{% endif %}">
+                        <span class="sf-tab-icon">⚙️</span>
+                        <span>Administración ▾</span>
+                    </a>
+                    <div class="sf-dropdown-menu">
+                        <a href="{{ url_for('admin.usuarios') }}">👥 Usuarios y Roles</a>
+                        <a href="{{ url_for('admin.permisos') }}">🛡️ Matriz de Permisos</a>
+                        <a href="{{ url_for('admin.tipos_casos') }}">🏷️ Tipos de Casos</a>
+                        <a href="{{ url_for('admin.asignaciones') }}">🔗 Sub-roles de Back Office</a>
+                        <a href="{{ url_for('admin.estadisticas') }}">📈 Métricas y Rendimiento</a>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </nav>
+
+        <!-- Main Content Canvas -->
+        <main class="sf-main-canvas">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+    {% else %}
+        {% block public_content %}{% endblock %}
+    {% endif %}
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-messages">
+        {% for category, message in messages %}
+        <div class="flash-msg {{ category }}">
+            <span>{{ message }}</span>
+            <button onclick="this.parentElement.remove()" style="background:none;border:none;color:inherit;cursor:pointer;margin-left:8px;">✕</button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endwith %}
+
+    <script>
+    // Atajo de teclado para la barra de búsqueda global ('/' o 'Ctrl+K')
+    document.addEventListener('keydown', function(e) {
+        if ((e.key === '/' || (e.ctrlKey && e.key === 'k')) && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+            e.preventDefault();
+            const searchInput = document.getElementById('global-search-input');
+            if (searchInput) {
+                searchInput.focus();
+                searchInput.select();
+            }
+        }
+    });
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+
+{% block title %}Búsqueda: "{{ query }}" — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="flex justify-between items-center">
+        <div>
+            <div class="sf-breadcrumb">
+                <a href="{{ url_for('dashboard.index') }}">Casos</a> / Búsqueda Universal
+            </div>
+            <h1 class="sf-page-title">Resultados para: <span style="color: var(--accent-primary-hover);">"{{ query }}"</span></h1>
+            <p class="sf-page-subtitle">Se encontraron {{ cases|length }} registros coincidentes en toda la base de datos.</p>
+        </div>
+        <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary btn-sm">← Volver al Dashboard</a>
+    </div>
+</div>
+
+<div class="card mt-4">
+    {% if cases %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID Caso</th>
+                    <th>Tipo de Caso</th>
+                    <th>N° Pedido</th>
+                    <th>Cliente / DNI</th>
+                    <th>Tracking / SAP</th>
+                    <th>Solicitud</th>
+                    <th>Estado</th>
+                    <th>Agente Back</th>
+                    <th>Fecha</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                <tr class="clickable-row" onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
+                    <td><strong style="color: var(--accent-primary-hover);">#{{ case.id }}</strong></td>
+                    <td>
+                        <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                            {{ case.typology_badge.label }}
+                        </span>
+                    </td>
+                    <td style="font-weight: 600; color: var(--text-primary);">{{ case.pedido_id or '—' }}</td>
+                    <td>
+                        <div>{{ case.nombre_cliente or '—' }}</div>
+                        {% if case.dni_cuit %}
+                        <div style="font-size: 0.75rem; color: var(--text-muted);">DNI: {{ case.dni_cuit }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if case.tracking %}<div>📦 {{ case.tracking }}</div>{% endif %}
+                        {% if case.codigo_sap %}<div style="color: var(--accent-warning); font-size: 0.75rem;">SAP: {{ case.codigo_sap }}</div>{% endif %}
+                        {% if not case.tracking and not case.codigo_sap %}—{% endif %}
+                    </td>
+                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {{ case.solicitud or '—' }}
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ case.status }}">{{ case.status_label }}</span>
+                        {% if case.motivo_reverificacion and case.status == 'reverificar' %}
+                        <div style="font-size: 0.7rem; color: #fb923c; margin-top: 2px;">⚠️ Requiere datos</div>
+                        {% elif case.motivo_rechazo and case.status == 'rechazado' %}
+                        <div style="font-size: 0.7rem; color: #f87171; margin-top: 2px;">🚫 Rechazado</div>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.assigned_user.display_name if case.assigned_user else 'Sin asignar' }}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        {{ case.created_at.strftime('%d/%m/%Y') if case.created_at else '—' }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">🔍</div>
+        <p class="empty-state-text">No se encontraron casos que coincidan con "{{ query }}".</p>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 6px;">
+            Probá buscar por número de pedido exacto, DNI del cliente, código de tracking, código SAP o palabra clave.
+        </p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

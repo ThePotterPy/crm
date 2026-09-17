@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Nuevo Caso (Front Office) — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="sf-breadcrumb">
+        <a href="{{ url_for('front.bandeja_front') }}">Bandeja Front</a> / Alta de Caso
+    </div>
+    <h1 class="sf-page-title">➕ Registro de Nuevo Caso</h1>
+    <p class="sf-page-subtitle">
+        Completá los datos del reclamo o solicitud. El sistema lo enrutará automáticamente al agente de Back Office asignado al sub-rol correspondiente.
+    </p>
+</div>
+
+<div class="card" style="max-width: 900px; margin: 20px auto;">
+    <div class="card-header">
+        <h2 class="card-title">Paso 1: Tipo de Solicitud</h2>
+    </div>
+
+    <form method="POST" action="{{ url_for('front.nuevo_caso') }}" id="form-nuevo-caso">
+        <div class="form-group" style="margin-bottom: 24px;">
+            <label class="form-label" for="sheet_id">Seleccioná el Tipo de Caso *</label>
+            <select name="sheet_id" id="sheet_id" class="form-select" required onchange="renderSheetForm(this.value)">
+                <option value="">— Elegí una tipología —</option>
+                {% for s in sheets %}
+                <option value="{{ s.id }}" {% if selected_sheet and selected_sheet.id == s.id %}selected{% endif %}>
+                    {{ s.display_name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id="dynamic-fields-container">
+            <!-- Los campos de front de la tipología seleccionada se renderizan dinámicamente aquí -->
+            <div id="empty-prompt" class="empty-state" style="padding: 30px;">
+                <div class="empty-state-icon">📋</div>
+                <p class="empty-state-text">Seleccioná un tipo de caso arriba para cargar el formulario correspondiente.</p>
+            </div>
+        </div>
+
+        <div id="form-actions" style="display: none; margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border-subtle);" class="flex justify-between items-center">
+            <div>
+                {% if current_user.is_back_office or current_user.is_admin or current_user.is_supervisor %}
+                <label class="flex items-center gap-2" style="cursor: pointer; font-size: 0.86rem; color: #f8fafc; font-weight: 600;">
+                    <input type="checkbox" name="autoasignar" value="1" checked style="width: 16px; height: 16px; accent-color: #38bdf8;">
+                    <span>⚡ Asignarme este caso a mí para gestionarlo ahora</span>
+                </label>
+                <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">
+                    Si se desmarca, se enrutará automáticamente al agente Back con menor carga.
+                </div>
+                {% else %}
+                <div style="font-size: 0.82rem; color: var(--text-muted);">
+                    ⚡ Al enviar, el caso se asignará automáticamente a la cola de Back Office correspondiente.
+                </div>
+                {% endif %}
+            </div>
+            <div class="flex gap-3">
+                <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">Cancelar</a>
+                <button type="submit" class="btn btn-primary">🚀 Crear Caso</button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Metadata de tipologías en JSON para renderizado interactivo -->
+<script>
+const sheetsData = {
+    {% for s in sheets %}
+    "{{ s.id }}": {
+        "display_name": {{ s.display_name|tojson }},
+        "color": "{{ s.color }}",
+        "inputs": {{ s.input_columns|safe or '[]' }}
+    },
+    {% endfor %}
+};
+
+function renderSheetForm(sheetId) {
+    const container = document.getElementById('dynamic-fields-container');
+    const actions = document.getElementById('form-actions');
+
+    if (!sheetId || !sheetsData[sheetId]) {
+        container.innerHTML = `
+            <div class="empty-state" style="padding: 30px;">
+                <div class="empty-state-icon">📋</div>
+                <p class="empty-state-text">Seleccioná un tipo de caso arriba para cargar el formulario correspondiente.</p>
+            </div>
+        `;
+        actions.style.display = 'none';
+        return;
+    }
+
+    const sheet = sheetsData[sheetId];
+    const inputs = sheet.inputs;
+
+    let html = `
+        <div style="background: rgba(99, 102, 241, 0.08); border-left: 4px solid ${sheet.color}; padding: 12px 16px; border-radius: 6px; margin-bottom: 24px;">
+            <strong style="color: var(--text-primary); font-size: 0.95rem;">Campos para: ${sheet.display_name}</strong>
+            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 2px;">Completá los campos de recepción del cliente requeridos por BGH.</div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px;">
+    `;
+
+    inputs.forEach(col => {
+        const isRequired = col.name.toLowerCase().includes('obligatorio') || col.name.toLowerCase().includes('pedido');
+        const isTextArea = col.name.toLowerCase().includes('observaci') || col.name.toLowerCase().includes('detalle') || col.name.toLowerCase().includes('direcci');
+
+        html += `
+            <div class="form-group" style="${isTextArea ? 'grid-column: 1 / -1;' : ''}">
+                <label class="form-label" for="input_${col.key}">
+                    ${col.name} ${isRequired ? '<span style="color: var(--accent-danger);">*</span>' : ''}
+                </label>
+        `;
+
+        if (col.type === 'select' && col.options) {
+            html += `<select name="input_${col.key}" id="input_${col.key}" class="form-select" ${isRequired ? 'required' : ''}>`;
+            col.options.forEach(opt => {
+                const isSelected = (opt && (opt.toLowerCase() === sheet.display_name.toLowerCase() || opt.toLowerCase().includes(sheet.display_name.toLowerCase())));
+                html += `<option value="${opt}" ${isSelected ? 'selected' : ''}>${opt || '— Seleccionar —'}</option>`;
+            });
+            html += `</select>`;
+        } else if (isTextArea) {
+            html += `<textarea name="input_${col.key}" id="input_${col.key}" class="form-textarea" rows="2" ${isRequired ? 'required' : ''} placeholder="Ingresá ${col.name}..."></textarea>`;
+        } else {
+            const defaultVal = (col.key === 'fecha') ? new Date().toISOString().split('T')[0] : '';
+            html += `<input type="text" name="input_${col.key}" id="input_${col.key}" value="${defaultVal}" class="form-input" ${isRequired ? 'required' : ''} placeholder="Ingresá ${col.name}...">`;
+        }
+
+        html += `</div>`;
+    });
+
+    html += `</div>`;
+    container.innerHTML = html;
+    actions.style.display = 'flex';
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const initialSelect = document.getElementById('sheet_id');
+    if (initialSelect && initialSelect.value) {
+        renderSheetForm(initialSelect.value);
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block title %}Matriz de Permisos por Rol — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="sf-breadcrumb">
+        <a href="{{ url_for('dashboard.index') }}">Inicio</a> / <a href="{{ url_for('admin.usuarios') }}">Administración</a> / Permisos
+    </div>
+    <div class="flex justify-between items-center" style="margin-top: 6px;">
+        <div>
+            <h1 class="sf-page-title">🛡️ Matriz Dinámica de Permisos por Rol</h1>
+            <p class="sf-page-subtitle">
+                Configurá qué capacidades y acciones tiene habilitadas cada rol operativo en el CRM BGH.
+            </p>
+        </div>
+    </div>
+</div>
+
+<form method="POST" action="{{ url_for('admin.guardar_permisos') }}">
+    <div class="card" style="margin-top: 20px;">
+        <div class="card-header flex justify-between items-center">
+            <div>
+                <h2 class="card-title">Capacidades Operativas por Rol</h2>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin-top: 4px;">
+                    Marcá o desmarcá las acciones permitidas para cada perfil de usuario.
+                </p>
+            </div>
+            <button type="submit" class="btn btn-primary">
+                💾 Guardar Cambios de Permisos
+            </button>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="table-permisos">
+                <thead>
+                    <tr>
+                        <th style="min-width: 180px;">Rol Operativo</th>
+                        <th style="text-align: center;">➕ Crear Casos<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Alta en /nuevo-caso</span></th>
+                        <th style="text-align: center;">✅ Resolver Casos<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Completar SAP / Resuelto</span></th>
+                        <th style="text-align: center;">🚫 Rechazar / Re-verificar<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Devolver a Front</span></th>
+                        <th style="text-align: center;">🔄 Reabrir / Re-enviar<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Responder a Back</span></th>
+                        <th style="text-align: center;">👁️ Ver Todos los Casos<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Sin filtro de cola</span></th>
+                        <th style="text-align: center;">⭐ Auditar Calidad<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Módulo TYQ</span></th>
+                        <th style="text-align: center;">📊 Exportar Reportes<br><span style="font-size: 0.68rem; font-weight: normal; color: var(--text-muted);">Excel / CSV</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in permissions %}
+                    <tr>
+                        <td>
+                            <div style="font-weight: 700; color: #f8fafc; font-size: 0.92rem;">
+                                {{ p.label }}
+                            </div>
+                            <code style="font-size: 0.72rem; color: #94a3b8;">@{{ p.role }}</code>
+                        </td>
+
+                        <!-- Crear Casos -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_create_cases"
+                                       {% if p.perm.can_create_cases %}checked{% endif %}
+                                       {% if p.role == 'admin' %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role == 'admin' %}<input type="hidden" name="{{ p.role }}_can_create_cases" value="on">{% endif %}
+                        </td>
+
+                        <!-- Resolver Casos -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_resolve_cases"
+                                       {% if p.perm.can_resolve_cases %}checked{% endif %}
+                                       {% if p.role == 'admin' %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role == 'admin' %}<input type="hidden" name="{{ p.role }}_can_resolve_cases" value="on">{% endif %}
+                        </td>
+
+                        <!-- Rechazar / Re-verificar -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_reject_cases"
+                                       {% if p.perm.can_reject_cases %}checked{% endif %}
+                                       {% if p.role == 'admin' %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role == 'admin' %}<input type="hidden" name="{{ p.role }}_can_reject_cases" value="on">{% endif %}
+                        </td>
+
+                        <!-- Reabrir / Re-enviar -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_reopen_cases"
+                                       {% if p.perm.can_reopen_cases %}checked{% endif %}
+                                       {% if p.role == 'admin' %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role == 'admin' %}<input type="hidden" name="{{ p.role }}_can_reopen_cases" value="on">{% endif %}
+                        </td>
+
+                        <!-- Ver Todos los Casos -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_view_all_cases"
+                                       {% if p.perm.can_view_all_cases %}checked{% endif %}
+                                       {% if p.role in ('admin', 'supervisor') %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role in ('admin', 'supervisor') %}<input type="hidden" name="{{ p.role }}_can_view_all_cases" value="on">{% endif %}
+                        </td>
+
+                        <!-- Auditar Calidad -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_audit_quality"
+                                       {% if p.perm.can_audit_quality %}checked{% endif %}
+                                       {% if p.role == 'admin' %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role == 'admin' %}<input type="hidden" name="{{ p.role }}_can_audit_quality" value="on">{% endif %}
+                        </td>
+
+                        <!-- Exportar Reportes -->
+                        <td style="text-align: center;">
+                            <label class="custom-switch">
+                                <input type="checkbox" name="{{ p.role }}_can_export_reports"
+                                       {% if p.perm.can_export_reports %}checked{% endif %}
+                                       {% if p.role == 'admin' %}disabled checked{% endif %}>
+                                <span class="switch-slider"></span>
+                            </label>
+                            {% if p.role == 'admin' %}<input type="hidden" name="{{ p.role }}_can_export_reports" value="on">{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="padding: 16px 24px; background: rgba(255,255,255,0.02); border-top: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 0.82rem; color: var(--text-muted);">
+                💡 Los cambios tienen impacto inmediato en la interfaz y permisos de acceso de cada usuario.
+            </div>
+            <button type="submit" class="btn btn-primary">
+                💾 Guardar Cambios de Permisos
+            </button>
+        </div>
+    </div>
+</form>
+{% endblock %}

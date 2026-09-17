@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Usuarios — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="page-header flex justify-between items-center">
+    <div>
+        <h1 class="page-title">Usuarios</h1>
+        <p class="page-subtitle">Gestionar acceso al CRM</p>
+    </div>
+    <button class="btn btn-primary" onclick="document.getElementById('modal-crear').classList.add('active')">
+        ＋ Nuevo Usuario
+    </button>
+</div>
+
+<div class="card">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Usuario</th>
+                    <th>Nombre</th>
+                    <th>Rol</th>
+                    <th>Tipos de Caso Asignados</th>
+                    <th>Estado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td style="font-weight: 600;">{{ user.username }}</td>
+                    <td>
+                        <div class="flex items-center gap-3">
+                            <div class="user-avatar" style="width: 30px; height: 30px; font-size: 0.75rem;">
+                                {{ user.display_name[0]|upper }}
+                            </div>
+                            {{ user.display_name }}
+                        </div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: {{ user.role_badge_color }}22; color: {{ user.role_badge_color }}; border: 1px solid {{ user.role_badge_color }}44; font-weight: 600;">
+                            {{ user.role_label }}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="flex flex-wrap gap-3" style="gap: 4px;">
+                            {% for sheet in user.assigned_sheets.all() %}
+                            <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="font-size: 0.65rem; padding: 2px 8px;">
+                                {{ sheet.badge_style.label }}
+                            </span>
+                            {% endfor %}
+                            {% if user.assigned_sheets.count() == 0 %}
+                            <span style="color: var(--text-muted); font-size: 0.8rem;">Sin asignar</span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td>
+                        <span class="badge {% if user.is_active_user %}badge-resuelto{% else %}badge-cerrado{% endif %}">
+                            {{ 'Activo' if user.is_active_user else 'Inactivo' }}
+                        </span>
+                    </td>
+                    <td>
+                        <div class="flex gap-3" style="gap: 6px;">
+                            <form method="POST" action="{{ url_for('admin.toggle_usuario', user_id=user.id) }}">
+                                <button type="submit" class="btn btn-secondary btn-sm"
+                                        title="{{ 'Desactivar' if user.is_active_user else 'Activar' }}">
+                                    {{ '🔒' if user.is_active_user else '🔓' }}
+                                </button>
+                            </form>
+                            <button class="btn btn-secondary btn-sm"
+                                     onclick="openResetModal({{ user.id }}, '{{ user.display_name }}')"
+                                     title="Resetear contraseña">🔑</button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal Crear Usuario -->
+<div class="modal-overlay" id="modal-crear">
+    <div class="modal">
+        <h2 class="modal-title">Nuevo Usuario</h2>
+        <form method="POST" action="{{ url_for('admin.crear_usuario') }}">
+            <div class="form-group">
+                <label class="form-label">Nombre de Usuario</label>
+                <input type="text" name="username" class="form-input" required
+                       placeholder="ej: jorge" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Nombre Completo</label>
+                <input type="text" name="display_name" class="form-input" required
+                       placeholder="ej: Jorge Zolabarrieta">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Contraseña</label>
+                <input type="password" name="password" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Rol Operativo</label>
+                <select name="role" class="form-select">
+                    <option value="agente_back">Agente Back Office (Gestión de casos)</option>
+                    <option value="agente_front">Agente Front Office (Creación y re-envío)</option>
+                    <option value="supervisor">Supervisor (Control general y asignaciones)</option>
+                    <option value="tyq">Training & Quality (Auditoría TYQ)</option>
+                    <option value="admin">Administrador (Control total)</option>
+                </select>
+            </div>
+            <div class="flex gap-3" style="margin-top: 20px;">
+                <button type="submit" class="btn btn-primary">Crear Usuario</button>
+                <button type="button" class="btn btn-secondary"
+                        onclick="document.getElementById('modal-crear').classList.remove('active')">
+                    Cancelar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Reset Password -->
+<div class="modal-overlay" id="modal-reset">
+    <div class="modal">
+        <h2 class="modal-title">Resetear Contraseña</h2>
+        <p style="color: var(--text-secondary); margin-bottom: 16px;" id="reset-info"></p>
+        <form method="POST" id="reset-form">
+            <div class="form-group">
+                <label class="form-label">Nueva Contraseña</label>
+                <input type="password" name="new_password" class="form-input" required>
+            </div>
+            <div class="flex gap-3" style="margin-top: 20px;">
+                <button type="submit" class="btn btn-primary">Cambiar</button>
+                <button type="button" class="btn btn-secondary"
+                        onclick="document.getElementById('modal-reset').classList.remove('active')">
+                    Cancelar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function openResetModal(userId, displayName) {
+    document.getElementById('reset-info').textContent = 'Cambiando contraseña de: ' + displayName;
+    document.getElementById('reset-form').action = '/admin/usuarios/' + userId + '/reset-password';
+    document.getElementById('modal-reset').classList.add('active');
+}
+
+// Close modals on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+        if (e.target === overlay) overlay.classList.remove('active');
+    });
+});
+</script>
+{% endblock %}

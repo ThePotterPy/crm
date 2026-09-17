@@ -1,0 +1,520 @@
+{% extends "base.html" %}
+
+{% block title %}Caso #{{ case.id }} — CRM BGH Service Cloud{% endblock %}
+
+{% block content %}
+<!-- Salesforce Record Header -->
+<div class="sf-record-header">
+    <div class="sf-record-header-top">
+        <div class="flex items-center gap-3">
+            <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary btn-sm">← Volver</a>
+            <span class="sf-record-type-label">CASO DE SERVICIO</span>
+            <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="font-size: 0.85rem; padding: 4px 14px;">
+                {{ case.typology_badge.label }}
+            </span>
+        </div>
+        <div class="flex items-center gap-2">
+            <span style="color: var(--accent-success); font-size: 0.8rem; display: flex; align-items: center; gap: 4px;">
+                ✓ Registrado en CRM
+            </span>
+        </div>
+    </div>
+
+    <div class="sf-record-header-main">
+        <div class="sf-record-title-area">
+            <div class="sf-record-icon">📁</div>
+            <div>
+                <h1 class="sf-record-title">Caso #{{ case.id }} — Pedido: {{ case.pedido_id or 'Sin N°' }}</h1>
+                <div class="sf-record-meta">
+                    <span>Creado: <strong>{{ case.created_at.strftime('%d/%m/%Y %H:%M') if case.created_at else '—' }}</strong></span>
+                    <span>Front: <strong>{{ case.agente_front or (case.creator.display_name if case.creator else '—') }}</strong></span>
+                    <span>Back Office: 
+                        <strong>{{ case.assigned_user.display_name if case.assigned_user else 'Sin asignar' }}</strong>
+                        {% if not case.assigned_to and (current_user.is_back_office or current_user.is_admin or current_user.is_supervisor) %}
+                        <form method="POST" action="{{ url_for('dashboard.tomar_caso', case_id=case.id) }}" style="display: inline-block; margin-left: 8px;">
+                            <button type="submit" class="btn btn-primary btn-sm" style="padding: 2px 10px; font-size: 0.72rem;">📥 Tomar Caso</button>
+                        </form>
+                        {% endif %}
+                        {% if current_user.is_admin or current_user.is_supervisor %}
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('modal-reasignar').classList.add('active')" style="padding: 2px 10px; font-size: 0.72rem; margin-left: 6px;">🔄 Reasignar</button>
+                        {% endif %}
+                    </span>
+                    {% if case.dni_cuit %}<span>DNI: <strong>{{ case.dni_cuit }}</strong></span>{% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Salesforce Chevron Path Pipeline -->
+    <div class="sf-path">
+        {% set steps = [
+            ('nuevo', 'Nuevo'),
+            ('en_proceso', 'En Proceso'),
+            ('reverificar', 'Re-verificar'),
+            ('reenviado', 'Re-enviado'),
+            ('resuelto', 'Resuelto'),
+            ('rechazado', 'Rechazado'),
+            ('cerrado', 'Cerrado')
+        ] %}
+        <div class="sf-path-pipeline">
+            {% for step_key, step_label in steps %}
+                {% if step_key not in ['reverificar', 'reenviado'] or case.status in ['reverificar', 'reenviado'] %}
+                <div class="sf-path-step {% if case.status == step_key %}active{% endif %} {% if step_key == 'resuelto' and case.status == 'resuelto' %}step-success{% endif %} {% if step_key == 'rechazado' and case.status == 'rechazado' %}step-danger{% endif %} {% if step_key == 'reverificar' and case.status == 'reverificar' %}step-warning{% endif %}">
+                    <span class="sf-path-step-text">{{ step_label }}</span>
+                </div>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Alertas Operativas -->
+{% if case.status == 'reverificar' %}
+<div class="sf-alert sf-alert-warning" style="margin: 20px 0;">
+    <div style="font-size: 1.6rem;">⚠️</div>
+    <div style="flex: 1;">
+        <div style="font-weight: 700; font-size: 1rem; color: #fb923c; margin-bottom: 4px;">
+            Solicitud de Re-verificación de Datos (Back Office)
+        </div>
+        <div style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 12px;">
+            <strong>Mensaje de Back Office:</strong> {{ case.motivo_reverificacion }}
+        </div>
+
+        {% if current_user.is_front_office or current_user.is_admin or current_user.is_supervisor or current_user.id == case.created_by %}
+        <!-- Formulario para que Front responda y re-envíe -->
+        <form method="POST" action="{{ url_for('front.reenviar_caso', case_id=case.id) }}" style="background: rgba(0,0,0,0.2); padding: 14px; border-radius: 6px; border: 1px solid rgba(251,146,60,0.3);">
+            <div class="form-group mb-2">
+                <label class="form-label" for="respuesta_front" style="color: #fdba74;">Tu Respuesta / Aclaración para Back Office:</label>
+                <input type="text" name="respuesta_front" id="respuesta_front" class="form-input" required
+                       placeholder="Ej: Ya corregí la dirección y confirmé por teléfono con el cliente.">
+            </div>
+            <div class="flex justify-between items-center mt-2">
+                <span style="font-size: 0.78rem; color: var(--text-muted);">
+                    Podés editar los campos de Front abajo si es necesario antes de presionar Re-enviar.
+                </span>
+                <button type="submit" class="btn btn-warning btn-sm">
+                    🔄 Re-enviar a Back Office
+                </button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if case.status == 'rechazado' %}
+<div class="sf-alert sf-alert-danger" style="margin: 20px 0;">
+    <div style="font-size: 1.6rem;">🚫</div>
+    <div>
+        <div style="font-weight: 700; font-size: 1rem; color: #ef4444; margin-bottom: 3px;">
+            Caso Rechazado por Back Office
+        </div>
+        <div style="font-size: 0.9rem; color: var(--text-secondary);">
+            <strong>Motivo indicado:</strong> {{ case.motivo_rechazo or 'Sin motivo detallado' }}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if case.status == 'reenviado' and case.respuesta_front %}
+<div class="sf-alert sf-alert-info" style="margin: 20px 0;">
+    <div style="font-size: 1.6rem;">ℹ️</div>
+    <div>
+        <div style="font-weight: 700; font-size: 0.95rem; color: #38bdf8; margin-bottom: 2px;">
+            Caso Re-enviado con Correcciones de Front
+        </div>
+        <div style="font-size: 0.88rem; color: var(--text-secondary);">
+            <strong>Nota de Front:</strong> {{ case.respuesta_front }}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<div class="detail-grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 24px; margin-top: 20px;">
+    <!-- ── COLUMNA IZQUIERDA: FRONT DATA & BACK OFFICE FORM ── -->
+    <div>
+        <!-- Datos de Entrada (Front) -->
+        <div class="card mb-4">
+            <div class="card-header flex justify-between items-center">
+                <h2 class="card-title">📥 Datos del Reclamo (Front Office)</h2>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Cargado por: {{ case.agente_front or '—' }}</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px;">
+                {% for col in input_columns %}
+                <div class="detail-field">
+                    <div class="detail-field-label">{{ col.name }}</div>
+                    <div class="detail-field-value" style="font-size: 0.92rem;">
+                        {{ raw_data.get(col.key, '—') or '—' }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Panel Especial: Control de Seguimiento de Retiro y Reembolso -->
+        {% if case.is_seguimiento_retiros and (current_user.is_back_office or current_user.is_admin or current_user.is_supervisor) %}
+        <div class="card mb-4" style="border: 2px solid #0891b2; background: rgba(8, 145, 178, 0.04);">
+            <div class="card-header flex justify-between items-center" style="border-bottom: 1px solid rgba(8, 145, 178, 0.2);">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.4rem;">🚚</span>
+                    <div>
+                        <h2 class="card-title" style="color: #38bdf8; margin: 0;">Control de Retiro & Reembolso</h2>
+                        <span style="font-size: 0.78rem; color: var(--text-muted);">Seguimiento logístico periódico y liquidación al cliente</span>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <span class="badge" style="background: {{ case.estado_retiro_badge.bg }}; color: {{ case.estado_retiro_badge.color }}; font-weight: 600;">
+                        🚚 {{ case.estado_retiro_badge.label }}
+                    </span>
+                    <span class="badge" style="background: {{ case.estado_reembolso_badge.bg }}; color: {{ case.estado_reembolso_badge.color }}; font-weight: 600;">
+                        💳 {{ case.estado_reembolso_badge.label }}
+                    </span>
+                </div>
+            </div>
+
+            <form method="POST" action="{{ url_for('dashboard.actualizar_seguimiento_retiro', case_id=case.id) }}" style="padding-top: 14px;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px;">
+                    <!-- Estado de Retiro -->
+                    <div class="form-group">
+                        <label class="form-label" for="estado_retiro" style="font-weight: 600; color: #38bdf8;">Estado de Retiro (Logística) *</label>
+                        <select name="estado_retiro" id="estado_retiro" class="form-select" required>
+                            <option value="Pendiente de retiro" {% if 'pendiente' in case.estado_retiro.lower() %}selected{% endif %}>🟡 Pendiente de retiro</option>
+                            <option value="Retirado / En tránsito" {% if 'retirado' in case.estado_retiro.lower() or 'transito' in case.estado_retiro.lower() %}selected{% endif %}>🔵 Retirado / En tránsito</option>
+                            <option value="Ingresado a depósito" {% if 'ingresado' in case.estado_retiro.lower() or 'deposito' in case.estado_retiro.lower() %}selected{% endif %}>🟢 Ingresado a depósito (OK)</option>
+                            <option value="No retirado / Fallido" {% if 'fallido' in case.estado_retiro.lower() or 'no retirado' in case.estado_retiro.lower() %}selected{% endif %}>🔴 No retirado / Fallido</option>
+                            <option value="Cancelado" {% if 'cancelado' in case.estado_retiro.lower() %}selected{% endif %}>⚫ Cancelado</option>
+                        </select>
+                    </div>
+
+                    <!-- Estado del Reembolso -->
+                    <div class="form-group">
+                        <label class="form-label" for="reembolso" style="font-weight: 600; color: #38bdf8;">Estado del Reembolso *</label>
+                        <select name="reembolso" id="reembolso" class="form-select" required>
+                            <option value="Reembolso no solicitado" {% if 'no' in case.estado_reembolso.lower() or not case.estado_reembolso %}selected{% endif %}>⚪ Reembolso no solicitado</option>
+                            <option value="Solicitado" {% if 'solicitado' in case.estado_reembolso.lower() and 'no' not in case.estado_reembolso.lower() %}selected{% endif %}>🟠 Reembolso Solicitado</option>
+                            <option value="Reembolsado" {% if 'reembolsado' in case.estado_reembolso.lower() %}selected{% endif %}>🟢 Reembolsado (Efectivizado)</option>
+                        </select>
+                    </div>
+
+                    <!-- ZRE2 SAP -->
+                    <div class="form-group">
+                        <label class="form-label" for="zre2">Código SAP / ZRE2</label>
+                        <input type="text" name="zre2" id="zre2" class="form-input" placeholder="Ej: ZRE2-108492" value="{{ case.zre2 }}">
+                    </div>
+
+                    <!-- Último Estado Logístico -->
+                    <div class="form-group">
+                        <label class="form-label" for="ultimo_estado">Último Estado Reportado</label>
+                        <input type="text" name="ultimo_estado" id="ultimo_estado" class="form-input" placeholder="Ej: Chofer pasó por domicilio sin éxito" value="{{ case.ultimo_estado_logistico }}">
+                    </div>
+
+                    <!-- Observaciones de Verificación -->
+                    <div class="form-group" style="grid-column: 1 / -1;">
+                        <label class="form-label" for="observaciones_seguimiento">Notas de Verificación Periódica</label>
+                        <textarea name="observaciones_seguimiento" id="observaciones_seguimiento" class="form-textarea" rows="2" placeholder="Añadir notas de seguimiento, fecha de chequeo con logística o remito..."></textarea>
+                    </div>
+                </div>
+
+                <div class="mt-3 flex justify-end">
+                    <button type="submit" class="btn btn-primary" style="background: #0891b2; border-color: #0891b2;">
+                        💾 Guardar Seguimiento y Reembolso
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+
+        <!-- Gestión Back Office -->
+        {% if current_user.is_back_office or current_user.is_admin or current_user.is_supervisor %}
+        <div class="card" style="border: 1px solid var(--accent-primary-glow);">
+            <div class="card-header flex justify-between items-center">
+                <h2 class="card-title">📝 Gestión Back Office</h2>
+                <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                    {{ case.typology_badge.label }}
+                </span>
+            </div>
+
+            <form method="POST" action="{{ url_for('dashboard.manage_case', case_id=case.id) }}" id="manage-form">
+                <input type="hidden" name="action" id="manage-action" value="guardar">
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
+                    {% for col in output_columns %}
+                    <div class="form-group" style="{% if col.get('type') == 'textarea' %}grid-column: 1 / -1;{% endif %}">
+                        <label class="form-label" for="output_{{ col.key }}">{{ col.name }}</label>
+                        {% if col.get('type') == 'select' %}
+                        <select name="output_{{ col.key }}" id="output_{{ col.key }}" class="form-select">
+                            <option value="">— Seleccionar —</option>
+                            {% for opt in col.get('options', []) %}
+                            <option value="{{ opt }}" {% if output_data.get(col.key) == opt %}selected{% endif %}>
+                                {{ opt }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% elif col.get('type') == 'textarea' %}
+                        <textarea name="output_{{ col.key }}" id="output_{{ col.key }}"
+                                  class="form-textarea" rows="2">{{ output_data.get(col.key, '') }}</textarea>
+                        {% else %}
+                        <input type="text" name="output_{{ col.key }}" id="output_{{ col.key }}"
+                               class="form-input" value="{{ output_data.get(col.key, '') }}">
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Estado del caso selector manual si desea cambiarlo directamente -->
+                <div class="form-group mt-3" style="max-width: 280px;">
+                    <label class="form-label" for="status">Estado del Caso</label>
+                    <select name="status" id="status" class="form-select">
+                        <option value="nuevo" {% if case.status == 'nuevo' %}selected{% endif %}>🔵 Nuevo</option>
+                        <option value="en_proceso" {% if case.status == 'en_proceso' %}selected{% endif %}>🟡 En Proceso</option>
+                        <option value="reverificar" {% if case.status == 'reverificar' %}selected{% endif %}>🟠 Re-verificar</option>
+                        <option value="reenviado" {% if case.status == 'reenviado' %}selected{% endif %}>🟢 Re-enviado</option>
+                        <option value="resuelto" {% if case.status == 'resuelto' %}selected{% endif %}>✅ Resuelto</option>
+                        <option value="rechazado" {% if case.status == 'rechazado' %}selected{% endif %}>🔴 Rechazado</option>
+                        <option value="cerrado" {% if case.status == 'cerrado' %}selected{% endif %}>⚫ Cerrado</option>
+                    </select>
+                </div>
+
+                <!-- Caja emergente para Motivo de Rechazo -->
+                <div id="box-rechazar" style="display: none; margin: 18px 0; padding: 16px; border-radius: var(--radius-sm); background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3);">
+                    <div style="font-weight: 700; color: #ef4444; margin-bottom: 10px;">🚫 Confirmar Rechazo del Caso</div>
+                    <div class="form-group mb-2">
+                        <label class="form-label" for="motivo_categoria">Categoría</label>
+                        <select name="motivo_categoria" id="motivo_categoria" class="form-select">
+                            <option value="">— Elegí motivo de rechazo —</option>
+                            <option value="Fuera de término / Plazo vencido">⏳ Fuera de término / Plazo vencido</option>
+                            <option value="Datos incompletos o erróneos">📋 Datos incompletos o erróneos (dirección/contacto)</option>
+                            <option value="Producto ya despachado o entregado">📦 Producto ya despachado o entregado</option>
+                            <option value="No cumple políticas de devolución o garantía">⚠️ No cumple políticas de devolución/garantía</option>
+                            <option value="Cancelación rechazada por transporte/depósito">🚛 Cancelación rechazada por transporte/depósito</option>
+                            <option value="Falta de comprobante o factura">🧾 Falta de comprobante o factura de compra</option>
+                            <option value="Otro motivo">📝 Otro motivo</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="form-label" for="motivo_detalle">Detalle del Rechazo</label>
+                        <textarea name="motivo_detalle" id="motivo_detalle" class="form-textarea" rows="2" placeholder="Explicá por qué se rechaza el caso..."></textarea>
+                    </div>
+                    <button type="button" class="btn btn-danger btn-sm" onclick="submitReject()">Confirmar Rechazo Definitivo</button>
+                </div>
+
+                <!-- Caja emergente para Re-verificación -->
+                <div id="box-reverificar" style="display: none; margin: 18px 0; padding: 16px; border-radius: var(--radius-sm); background: rgba(249, 115, 22, 0.08); border: 1px solid rgba(249, 115, 22, 0.3);">
+                    <div style="font-weight: 700; color: #f97316; margin-bottom: 10px;">⚠️ Pedir Re-verificación a Front Office</div>
+                    <div class="form-group mb-2">
+                        <label class="form-label" for="motivo_reverificar_texto">¿Qué datos necesita Front corregir o validar?</label>
+                        <textarea name="motivo_reverificar_texto" id="motivo_reverificar_texto" class="form-textarea" rows="2"
+                                  placeholder="Ej: La dirección no tiene número o el teléfono da apagado. Chequear con cliente."></textarea>
+                    </div>
+                    <button type="button" class="btn btn-warning btn-sm" onclick="submitReverify()">Enviar a Bandeja de Front</button>
+                </div>
+
+                <!-- Botonera de Acciones Rápidas -->
+                <div class="flex gap-2 flex-wrap mt-4 pt-3" style="border-top: 1px solid var(--border-subtle);">
+                    <button type="submit" class="btn btn-primary">
+                        💾 Guardar Gestión
+                    </button>
+                    {% if current_user.can_resolve_cases %}
+                    <button type="button" class="btn btn-success" onclick="submitResolve()">
+                        ✅ Resolver Caso
+                    </button>
+                    {% endif %}
+                    {% if current_user.can_reject_cases %}
+                    <button type="button" class="btn btn-warning" onclick="toggleReverifyBox()">
+                        ⚠️ Pedir Re-verificación
+                    </button>
+                    <button type="button" class="btn btn-danger" onclick="toggleRejectBox()">
+                        🚫 Rechazar Caso
+                    </button>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ── COLUMNA DERECHA: TIMELINE & CALIDAD TYQ ── -->
+    <div>
+        <!-- Módulo de Calidad (TYQ) -->
+        <div class="card mb-4" id="seccion-calidad">
+            <div class="card-header flex justify-between items-center">
+                <h2 class="card-title">⭐ Auditoría de Calidad (TYQ)</h2>
+                {% if case.quality_score is not none %}
+                <span class="badge" style="background: {% if case.quality_score >= 85 %}rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);{% elif case.quality_score >= 70 %}rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);{% else %}rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3);{% endif %} font-size: 0.85rem;">
+                    Score: {{ case.quality_score }}%
+                </span>
+                {% else %}
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Sin auditar</span>
+                {% endif %}
+            </div>
+
+            {% if current_user.is_quality or current_user.is_supervisor or current_user.is_admin %}
+            <!-- Formulario de Evaluación TYQ -->
+            <form method="POST" action="{{ url_for('quality.auditar_caso', case_id=case.id) }}">
+                <div class="form-group mb-2">
+                    <label class="form-label" for="quality_score">Puntaje de Calidad (0 a 100%)</label>
+                    <input type="number" name="quality_score" id="quality_score" class="form-input"
+                           min="0" max="100" value="{{ case.quality_score or 100 }}" required>
+                </div>
+
+                <div class="form-group mb-2">
+                    <label class="form-label">Checklist de Criterios BGH:</label>
+                    <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem; padding: 8px; background: var(--bg-secondary); border-radius: 6px;">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" name="chk_datos" {% if quality_chk.get('datos_correctos', true) %}checked{% endif %}>
+                            <span>Datos del cliente y pedido verificados</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" name="chk_procedimiento" {% if quality_chk.get('procedimiento_cumplido', true) %}checked{% endif %}>
+                            <span>Procedimiento y políticas BGH cumplidas</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" name="chk_sap" {% if quality_chk.get('sap_cargado', true) %}checked{% endif %}>
+                            <span>Código SAP / Salesforce registrado correctamente</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" name="chk_tiempos" {% if quality_chk.get('tiempos_sla', true) %}checked{% endif %}>
+                            <span>Tiempos de respuesta y resolución adecuados</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group mb-3">
+                    <label class="form-label" for="quality_feedback">Devolución / Coaching para el Agente</label>
+                    <textarea name="quality_feedback" id="quality_feedback" class="form-textarea" rows="2"
+                              placeholder="Observaciones formativas sobre la gestión...">{{ case.quality_feedback or '' }}</textarea>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-sm" style="width: 100%;">
+                    💾 Registrar Evaluación TYQ
+                </button>
+            </form>
+            {% else %}
+            <!-- Vista de solo lectura para agentes -->
+            <div style="font-size: 0.88rem;">
+                {% if case.quality_score is not none %}
+                <div style="margin-bottom: 8px;">Auditado por: <strong>{{ case.auditor.display_name if case.auditor else 'Auditor TYQ' }}</strong></div>
+                <div>Devolución: <em>"{{ case.quality_feedback or 'Sin comentarios adicionales.' }}"</em></div>
+                {% else %}
+                <p style="color: var(--text-muted);">Este caso aún no ha sido seleccionado para auditoría de calidad.</p>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Salesforce Activity Timeline (case_events) -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">⏱️ Línea de Tiempo de Actividad</h2>
+            </div>
+
+            <div class="sf-timeline">
+                {% for ev in events %}
+                <div class="sf-timeline-item">
+                    <div class="sf-timeline-marker marker-{{ ev.event_type }}"></div>
+                    <div class="sf-timeline-content">
+                        <div class="flex justify-between items-center">
+                            <span class="sf-timeline-title">{{ ev.title }}</span>
+                            <span class="sf-timeline-time">{{ ev.created_at.strftime('%d/%m %H:%M') }}</span>
+                        </div>
+                        {% if ev.description %}
+                        <div class="sf-timeline-desc">{{ ev.description }}</div>
+                        {% endif %}
+                        <div class="sf-timeline-user">
+                            {% if ev.user %}👤 {{ ev.user.display_name }}{% else %}⚙️ Sistema{% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+
+                {% if not events %}
+                <div class="empty-state" style="padding: 16px;">
+                    <p class="empty-state-text" style="font-size: 0.85rem;">No hay eventos registrados aún.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleRejectBox() {
+    const box = document.getElementById('box-rechazar');
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    document.getElementById('box-reverificar').style.display = 'none';
+    if (box.style.display === 'block') {
+        box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function toggleReverifyBox() {
+    const box = document.getElementById('box-reverificar');
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    document.getElementById('box-rechazar').style.display = 'none';
+    if (box.style.display === 'block') {
+        box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+}
+
+function submitResolve() {
+    if (confirm('¿Confirmás que querés marcar este caso como RESUELTO?')) {
+        document.getElementById('manage-action').value = 'resolver';
+        document.getElementById('manage-form').submit();
+    }
+}
+
+function submitReject() {
+    const cat = document.getElementById('motivo_categoria').value;
+    const det = document.getElementById('motivo_detalle').value.trim();
+    if (!cat && !det) {
+        alert('Por favor seleccioná una categoría o escribí el motivo de rechazo.');
+        return;
+    }
+    if (confirm('¿Confirmás que querés RECHAZAR este caso? Se notificará al Agente Front.')) {
+        document.getElementById('manage-action').value = 'rechazar';
+        document.getElementById('manage-form').submit();
+    }
+}
+
+function submitReverify() {
+    const text = document.getElementById('motivo_reverificar_texto').value.trim();
+    if (!text) {
+        alert('Por favor indicá qué dato debe re-verificar el Agente Front.');
+        return;
+    }
+    document.getElementById('manage-action').value = 'solicitar_reverificacion';
+    document.getElementById('manage-form').submit();
+}
+</script>
+
+{% if current_user.is_admin or current_user.is_supervisor %}
+<!-- Modal Reasignar Caso -->
+<div class="modal-overlay" id="modal-reasignar">
+    <div class="modal">
+        <h2 class="modal-title">🔄 Reasignar Caso #{{ case.id }}</h2>
+        <form method="POST" action="{{ url_for('dashboard.reasignar_caso', case_id=case.id) }}">
+            <div class="form-group">
+                <label class="form-label">Agente de Back Office Actual</label>
+                <input type="text" class="form-input form-readonly" readonly value="{{ case.assigned_user.display_name if case.assigned_user else 'Sin asignar' }}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Nuevo Agente Asignado *</label>
+                <select name="nuevo_agente_id" class="form-select" required>
+                    <option value="">— Seleccionar agente —</option>
+                    {% for agent in back_agents %}
+                    <option value="{{ agent.id }}" {% if case.assigned_to == agent.id %}selected{% endif %}>
+                        {{ agent.display_name }} (@{{ agent.username }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('modal-reasignar').classList.remove('active')">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar Reasignación</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

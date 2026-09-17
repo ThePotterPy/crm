@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Informes y Reportes — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="flex justify-between items-center">
+        <div>
+            <div class="sf-breadcrumb">Inteligencia Operativa / Informes</div>
+            <h1 class="sf-page-title">📊 Centro de Informes y Exportación</h1>
+            <p class="sf-page-subtitle">Generá reportes personalizados por rangos de fechas, agentes, tipologías de casos y estados de resolución.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Filtros de Reporte -->
+<div class="card mb-4">
+    <div class="card-header">
+        <h2 class="card-title">Filtros de Búsqueda y Extracción</h2>
+    </div>
+
+    <form method="GET" action="{{ url_for('reports.index') }}">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+            <!-- Fechas -->
+            <div class="form-group">
+                <label class="form-label" for="fecha_desde">Fecha Desde</label>
+                <input type="date" name="fecha_desde" id="fecha_desde" class="form-input"
+                       value="{{ filters.get('fecha_desde', '') }}">
+            </div>
+            <div class="form-group">
+                <label class="form-label" for="fecha_hasta">Fecha Hasta</label>
+                <input type="date" name="fecha_hasta" id="fecha_hasta" class="form-input"
+                       value="{{ filters.get('fecha_hasta', '') }}">
+            </div>
+
+            <!-- Tipología / Tipo de Caso -->
+            <div class="form-group">
+                <label class="form-label" for="sheet_id">Tipo de Caso</label>
+                <select name="sheet_id" id="sheet_id" class="form-select">
+                    <option value="">Todas las tipologías</option>
+                    {% for s in sheets %}
+                    <option value="{{ s.id }}" {% if filters.get('sheet_id') == s.id|string %}selected{% endif %}>
+                        {{ s.display_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Estado -->
+            <div class="form-group">
+                <label class="form-label" for="status">Estado del Caso</label>
+                <select name="status" id="status" class="form-select">
+                    <option value="">Todos los estados</option>
+                    <option value="nuevo" {% if filters.get('status') == 'nuevo' %}selected{% endif %}>Nuevo</option>
+                    <option value="en_proceso" {% if filters.get('status') == 'en_proceso' %}selected{% endif %}>En Proceso</option>
+                    <option value="reverificar" {% if filters.get('status') == 'reverificar' %}selected{% endif %}>Re-verificar</option>
+                    <option value="reenviado" {% if filters.get('status') == 'reenviado' %}selected{% endif %}>Re-enviado</option>
+                    <option value="resuelto" {% if filters.get('status') == 'resuelto' %}selected{% endif %}>Resuelto</option>
+                    <option value="rechazado" {% if filters.get('status') == 'rechazado' %}selected{% endif %}>Rechazado</option>
+                    <option value="cerrado" {% if filters.get('status') == 'cerrado' %}selected{% endif %}>Cerrado</option>
+                </select>
+            </div>
+
+            <!-- Agente Back -->
+            <div class="form-group">
+                <label class="form-label" for="assigned_to">Agente Back Office</label>
+                <select name="assigned_to" id="assigned_to" class="form-select">
+                    <option value="">Cualquier agente</option>
+                    {% for a in back_agents %}
+                    <option value="{{ a.id }}" {% if filters.get('assigned_to') == a.id|string %}selected{% endif %}>
+                        {{ a.display_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Filtros rápidos checkbox -->
+            <div class="form-group" style="display: flex; flex-direction: column; justify-content: center; gap: 8px;">
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                    <input type="checkbox" name="only_rejected" value="1" {% if filters.get('only_rejected') == '1' %}checked{% endif %}>
+                    <span>🚫 Solo casos rechazados</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                    <input type="checkbox" name="only_audited" value="1" {% if filters.get('only_audited') == '1' %}checked{% endif %}>
+                    <span>⭐ Solo auditados por TYQ</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center mt-4 pt-4" style="border-top: 1px solid var(--border-subtle);">
+            <div>
+                <button type="submit" class="btn btn-secondary">🔍 Aplicar Filtros</button>
+                <a href="{{ url_for('reports.index') }}" class="btn btn-secondary btn-sm" style="margin-left: 8px;">Limpiar</a>
+            </div>
+
+            <!-- Botones de descarga que preservan los query params -->
+            {% set export_params = request.args.to_dict() %}
+            <div class="flex gap-3">
+                <a href="{{ url_for('reports.export_csv', **export_params) }}" class="btn btn-secondary">
+                    📄 Descargar CSV
+                </a>
+                <a href="{{ url_for('reports.export_excel', **export_params) }}" class="btn btn-primary">
+                    📥 Descargar Excel (.xlsx)
+                </a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- Previsualización de Resultados -->
+<div class="card">
+    <div class="card-header flex justify-between items-center">
+        <h2 class="card-title">Casos Filtrados (Total: {{ total_count }})</h2>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">Mostrando primeros 30 registros</span>
+    </div>
+
+    {% if cases_preview %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Tipo de Caso</th>
+                    <th>N° Pedido</th>
+                    <th>Fecha</th>
+                    <th>Cliente</th>
+                    <th>SAP / Salesforce</th>
+                    <th>Estado</th>
+                    <th>Agente Back</th>
+                    <th>Score TYQ</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases_preview %}
+                <tr class="clickable-row" onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
+                    <td><strong>#{{ case.id }}</strong></td>
+                    <td>
+                        <span class="badge-sheet" style="--sheet-color: {{ case.sheet_config.color }}">
+                            {{ case.sheet_config.display_name }}
+                        </span>
+                    </td>
+                    <td style="font-weight: 600; color: var(--text-primary);">{{ case.pedido_id or '—' }}</td>
+                    <td>{{ case.created_at.strftime('%d/%m/%Y') if case.created_at else '—' }}</td>
+                    <td>{{ case.nombre_cliente or case.dni_cuit or '—' }}</td>
+                    <td>
+                        {% if case.codigo_sap %}<div>SAP: {{ case.codigo_sap }}</div>{% endif %}
+                        {% if case.caso_salesforce %}<div style="font-size: 0.75rem; color: var(--text-muted);">SF: {{ case.caso_salesforce }}</div>{% endif %}
+                        {% if not case.codigo_sap and not case.caso_salesforce %}—{% endif %}
+                    </td>
+                    <td><span class="badge badge-{{ case.status }}">{{ case.status_label }}</span></td>
+                    <td>{{ case.assigned_user.display_name if case.assigned_user else '—' }}</td>
+                    <td>
+                        {% if case.quality_score is not none %}
+                        <span style="font-weight: 700; color: {% if case.quality_score >= 85 %}var(--accent-success){% elif case.quality_score >= 70 %}var(--accent-warning){% else %}var(--accent-danger){% endif %};">
+                            {{ case.quality_score }}%
+                        </span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">📊</div>
+        <p class="empty-state-text">No se encontraron casos con los filtros especificados.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Panel de Calidad (TYQ) — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="flex justify-between items-center">
+        <div>
+            <div class="sf-breadcrumb">Módulo Training & Quality / Auditorías</div>
+            <h1 class="sf-page-title">⭐ Panel de Calidad y Formación (TYQ)</h1>
+            <p class="sf-page-subtitle">Seguimiento de estándares operativos de BGH, auditorías a casos resueltos y devoluciones de coaching.</p>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--text-muted);">
+            Rol actual: <strong style="color: var(--accent-success);">{{ current_user.role_label }}</strong>
+        </div>
+    </div>
+</div>
+
+<!-- KPIs de Calidad -->
+<div class="kpi-grid">
+    <div class="kpi-card" style="--kpi-color: var(--accent-primary)">
+        <div class="kpi-label">Casos Auditados</div>
+        <div class="kpi-value">{{ total_audited }}</div>
+        <div class="kpi-icon">📝</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: {% if avg_score >= 85 %}var(--accent-success){% elif avg_score >= 70 %}var(--accent-warning){% else %}var(--accent-danger){% endif %}">
+        <div class="kpi-label">Promedio de Calidad</div>
+        <div class="kpi-value">{{ avg_score }}%</div>
+        <div class="kpi-icon">🎯</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-warning)">
+        <div class="kpi-label">Pendientes de Auditar</div>
+        <div class="kpi-value">{{ pending_audit_count }}</div>
+        <div class="kpi-icon">⏳</div>
+    </div>
+</div>
+
+<div class="detail-grid" style="grid-template-columns: 1fr 1fr; margin-top: 24px;">
+    <!-- Rendimiento por Agente Back Office -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Rendimiento por Agente Back Office</h2>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Agente</th>
+                        <th>Auditados</th>
+                        <th>Promedio</th>
+                        <th>Estado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in agent_stats %}
+                    <tr>
+                        <td style="font-weight: 600;">{{ stat.name }}</td>
+                        <td>{{ stat.audits_count }}</td>
+                        <td>
+                            {% if stat.avg_score is not none %}
+                            <strong style="color: {% if stat.avg_score >= 85 %}var(--accent-success){% elif stat.avg_score >= 70 %}var(--accent-warning){% else %}var(--accent-danger){% endif %};">
+                                {{ stat.avg_score }}%
+                            </strong>
+                            {% else %}
+                            <span style="color: var(--text-muted);">Sin datos</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if stat.avg_score is not none %}
+                                {% if stat.avg_score >= 90 %}
+                                <span class="badge badge-resuelto">Excelente</span>
+                                {% elif stat.avg_score >= 75 %}
+                                <span class="badge badge-en_proceso">Cumple</span>
+                                {% else %}
+                                <span class="badge badge-rechazado">Refuerzo Requerido</span>
+                                {% endif %}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not agent_stats %}
+                    <tr><td colspan="4" style="text-align: center; color: var(--text-muted);">No hay agentes registrados.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Casos Resueltos Disponibles para Auditar -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Casos para Auditar (Recientes)</h2>
+        </div>
+        {% if cases_to_audit %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tipo de Caso</th>
+                        <th>N° Pedido</th>
+                        <th>Agente</th>
+                        <th>Acción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for case in cases_to_audit %}
+                    <tr>
+                        <td><strong>#{{ case.id }}</strong></td>
+                        <td>
+                            <span class="badge-sheet" style="--sheet-color: {{ case.sheet_config.color }}">
+                                {{ case.sheet_config.display_name }}
+                            </span>
+                        </td>
+                        <td style="font-weight: 600;">{{ case.pedido_id or '—' }}</td>
+                        <td>{{ case.assigned_user.display_name if case.assigned_user else '—' }}</td>
+                        <td>
+                            <a href="{{ url_for('dashboard.case_detail', case_id=case.id) }}#seccion-calidad"
+                               class="btn btn-primary btn-sm">
+                                ⭐ Auditar
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding: 24px;">
+            <div class="empty-state-icon">✅</div>
+            <p class="empty-state-text">No hay casos resueltos pendientes de auditoría.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Últimas Auditorías Realizadas -->
+<div class="card mt-4">
+    <div class="card-header">
+        <h2 class="card-title">Últimas Auditorías Realizadas</h2>
+    </div>
+    {% if recent_audited %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Caso</th>
+                    <th>N° Pedido</th>
+                    <th>Agente Evaluado</th>
+                    <th>Calificación</th>
+                    <th>Auditado Por</th>
+                    <th>Devolución de Coaching</th>
+                    <th>Fecha</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in recent_audited %}
+                <tr class="clickable-row" onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
+                    <td><strong>#{{ case.id }}</strong></td>
+                    <td style="font-weight: 600;">{{ case.pedido_id or '—' }}</td>
+                    <td>{{ case.assigned_user.display_name if case.assigned_user else '—' }}</td>
+                    <td>
+                        <span class="badge" style="background: {% if case.quality_score >= 85 %}rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3);{% elif case.quality_score >= 70 %}rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3);{% else %}rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3);{% endif %}">
+                            {{ case.quality_score }}%
+                        </span>
+                    </td>
+                    <td>{{ case.auditor.display_name if case.auditor else '—' }}</td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {{ case.quality_feedback or 'Sin comentarios' }}
+                    </td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        {{ case.audited_at.strftime('%d/%m/%Y %H:%M') if case.audited_at else '—' }}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

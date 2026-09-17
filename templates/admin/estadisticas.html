@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Estadísticas — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Estadísticas</h1>
+    <p class="page-subtitle">Resumen global de casos y rendimiento</p>
+</div>
+
+<!-- KPIs globales -->
+<div class="kpi-grid">
+    <div class="kpi-card" style="--kpi-color: var(--accent-primary)">
+        <div class="kpi-label">Total Global</div>
+        <div class="kpi-value">{{ total_global }}</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-warning)">
+        <div class="kpi-label">Sin Asignar</div>
+        <div class="kpi-value">{{ sin_asignar }}</div>
+    </div>
+</div>
+
+<!-- Por Tipo de Caso -->
+<div class="card mb-8">
+    <div class="card-header">
+        <h2 class="card-title">Casos por Tipo de Caso</h2>
+    </div>
+    <div class="stats-grid">
+        {% for stat in cases_by_sheet %}
+        <div class="card" style="border-left: 3px solid {{ stat.color }};">
+            <div style="font-weight: 700; margin-bottom: 12px;">{{ stat.name }}</div>
+            <div class="flex justify-between items-center mb-4">
+                <span style="color: var(--text-muted); font-size: 0.85rem;">Total: {{ stat.total }}</span>
+                <span style="color: var(--accent-success); font-size: 0.85rem;">Resueltos: {{ stat.resueltos }}</span>
+            </div>
+            <div class="stat-bar">
+                {% if stat.total > 0 %}
+                <div class="stat-bar-fill" style="width: {{ (stat.resueltos / stat.total * 100)|round }}%; background: {{ stat.color }};"></div>
+                {% endif %}
+            </div>
+            <div class="flex justify-between mt-4" style="font-size: 0.78rem; color: var(--text-muted); gap: 6px; flex-wrap: wrap;">
+                <span>🔵 {{ stat.nuevos }} nuevos</span>
+                <span>🟡 {{ stat.en_proceso }} proceso</span>
+                <span>🚫 {{ stat.rechazados }} rechazados</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Por Agente -->
+<div class="card">
+    <div class="card-header">
+        <h2 class="card-title">Casos por Agente</h2>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Agente</th>
+                    <th>Total</th>
+                    <th>Resueltos</th>
+                    <th>Rechazados</th>
+                    <th>Tasa Resolución</th>
+                    <th>Progreso</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for agent in cases_by_agent %}
+                <tr>
+                    <td style="font-weight: 600;">{{ agent.name }}</td>
+                    <td>{{ agent.total }}</td>
+                    <td style="color: var(--accent-success);">{{ agent.resueltos }}</td>
+                    <td style="color: var(--accent-danger);">{{ agent.rechazados }}</td>
+                    <td>{{ ((agent.resueltos / agent.total * 100)|round if agent.total > 0 else 0) }}%</td>
+                    <td style="width: 200px;">
+                        <div class="stat-bar">
+                            {% if agent.total > 0 %}
+                            <div class="stat-bar-fill" style="width: {{ (agent.resueltos / agent.total * 100)|round }}%; background: var(--accent-success);"></div>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

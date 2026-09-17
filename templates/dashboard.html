@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-view-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; flex-wrap: wrap; gap: 16px;">
+    <div style="display: flex; flex-direction: column; gap: 4px;">
+        <h1 class="page-title" style="margin-bottom: 0;">Dashboard</h1>
+        <p class="page-subtitle" style="margin-bottom: 0;">
+            {% if view_filter == 'asignados' %}
+            Tus casos asignados en atención activa
+            {% else %}
+            Vista global de todos los casos del sistema CRM
+            {% endif %}
+        </p>
+    </div>
+
+    <!-- Segmented View Switcher -->
+    <div class="sf-segmented-control" style="display: inline-flex; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px; gap: 4px;">
+        <a href="{{ url_for('dashboard.index', view='todos', status=status_filter, sheet=sheet_filter, q=search_query) }}"
+           class="sf-segment-btn"
+           style="padding: 7px 16px; font-size: 0.85rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: all 0.2s; {% if view_filter != 'asignados' %}background: var(--accent-primary); color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: var(--text-secondary);{% endif %}">
+            <span>📋 Todos los Casos</span>
+            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_todos }}</span>
+        </a>
+        <a href="{{ url_for('dashboard.index', view='asignados', status=status_filter, sheet=sheet_filter, q=search_query) }}"
+           class="sf-segment-btn"
+           style="padding: 7px 16px; font-size: 0.85rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: all 0.2s; {% if view_filter == 'asignados' %}background: var(--accent-primary); color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: var(--text-secondary);{% endif %}">
+            <span>👤 Mis Casos Asignados</span>
+            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_asignados }}</span>
+        </a>
+    </div>
+</div>
+
+<!-- KPIs -->
+<div class="kpi-grid">
+    <div class="kpi-card" style="--kpi-color: var(--accent-primary)">
+        <div class="kpi-label">Total Casos</div>
+        <div class="kpi-value">{{ total_cases }}</div>
+        <div class="kpi-icon">📋</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-info)">
+        <div class="kpi-label">Nuevos</div>
+        <div class="kpi-value">{{ new_cases }}</div>
+        <div class="kpi-icon">🆕</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-warning)">
+        <div class="kpi-label">En Proceso</div>
+        <div class="kpi-value">{{ in_process }}</div>
+        <div class="kpi-icon">⚙️</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: #f97316;">
+        <div class="kpi-label">Re-verificar</div>
+        <div class="kpi-value" style="color: #fb923c;">{{ reverificar_count }}</div>
+        <div class="kpi-icon">⚠️</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: #06b6d4;">
+        <div class="kpi-label">Re-enviados</div>
+        <div class="kpi-value" style="color: #22d3ee;">{{ reenviado_count }}</div>
+        <div class="kpi-icon">🔄</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-success)">
+        <div class="kpi-label">Resueltos</div>
+        <div class="kpi-value">{{ resolved_cases }}</div>
+        <div class="kpi-icon">✅</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-danger)">
+        <div class="kpi-label">Rechazados</div>
+        <div class="kpi-value">{{ rejected_cases }}</div>
+        <div class="kpi-icon">🚫</div>
+    </div>
+</div>
+
+<!-- Filtros -->
+<form method="GET" action="{{ url_for('dashboard.index') }}">
+    <input type="hidden" name="view" value="{{ view_filter }}">
+    <div class="filters-bar">
+        <div class="search-input-wrapper">
+            <input type="text" name="q" class="form-input search-input"
+                   placeholder="Buscar por N° pedido, solicitud, DNI, tracking, cliente..."
+                   value="{{ search_query }}">
+        </div>
+        <select name="sheet" class="form-select" style="width: 220px;" onchange="this.form.submit()">
+            <option value="">Todos los tipos de caso</option>
+            {% for sheet in sheets %}
+            <option value="{{ sheet.id }}" {% if sheet_filter == sheet.id|string %}selected{% endif %}>
+                {{ sheet.display_name }}
+            </option>
+            {% endfor %}
+        </select>
+        <select name="status" class="form-select" style="width: 180px;" onchange="this.form.submit()">
+            <option value="">Todos los estados</option>
+            <option value="nuevo" {% if status_filter == 'nuevo' %}selected{% endif %}>Nuevo</option>
+            <option value="en_proceso" {% if status_filter == 'en_proceso' %}selected{% endif %}>En Proceso</option>
+            <option value="reverificar" {% if status_filter == 'reverificar' %}selected{% endif %}>⚠️ Re-verificar</option>
+            <option value="reenviado" {% if status_filter == 'reenviado' %}selected{% endif %}>🔄 Re-enviado</option>
+            <option value="resuelto" {% if status_filter == 'resuelto' %}selected{% endif %}>Resuelto</option>
+            <option value="rechazado" {% if status_filter == 'rechazado' %}selected{% endif %}>Rechazado</option>
+            <option value="cerrado" {% if status_filter == 'cerrado' %}selected{% endif %}>Cerrado</option>
+        </select>
+        <button type="submit" class="btn btn-secondary btn-sm">Filtrar</button>
+        {% if search_query or sheet_filter or status_filter %}
+        <a href="{{ url_for('dashboard.index', view=view_filter) }}" class="btn btn-secondary btn-sm" title="Limpiar filtros" style="color: var(--text-muted);">✕ Limpiar</a>
+        {% endif %}
+    </div>
+</form>
+
+<!-- Tabla de Casos -->
+<div class="card">
+    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <h2 class="card-title">
+            {% if view_filter == 'asignados' %}
+            Mis Casos Asignados ({{ cases|length }})
+            {% else %}
+            Todos los Casos ({{ cases|length }})
+            {% endif %}
+        </h2>
+        <span style="font-size: 0.8rem; color: var(--text-muted);">
+            {% if view_filter == 'asignados' %}
+            Bandeja personal de gestión
+            {% else %}
+            Bandeja operativa global
+            {% endif %}
+        </span>
+    </div>
+
+    {% if cases %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Tipo de Caso</th>
+                    <th>N° Pedido</th>
+                    <th>Fecha</th>
+                    <th>Tienda</th>
+                    <th>Agente Front</th>
+                    <th>Estado</th>
+                    <th>Retiro / Reembolso</th>
+                    <th>Asignado a</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                <tr class="clickable-row" onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
+                    <td>#{{ case.id }}</td>
+                    <td>
+                        <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                            {{ case.typology_badge.label }}
+                        </span>
+                    </td>
+                    <td style="font-weight: 600; color: var(--text-primary)">{{ case.pedido_id or '—' }}</td>
+                    <td>{{ case.fecha or '—' }}</td>
+                    <td>{{ case.tienda or '—' }}</td>
+                    <td>{{ case.agente_front or '—' }}</td>
+                    <td>
+                        <span class="badge badge-{{ case.status }}">{{ case.status_label }}</span>
+                        {% if case.motivo_rechazo %}
+                        <div style="font-size: 0.72rem; color: #f87171; margin-top: 4px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ case.motivo_rechazo }}">
+                            🚫 {{ case.motivo_rechazo }}
+                        </div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if case.is_seguimiento_retiros or case.estado_retiro or case.estado_reembolso %}
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <span class="badge" style="background: {{ case.estado_retiro_badge.bg }}; color: {{ case.estado_retiro_badge.color }}; font-size: 0.68rem; padding: 2px 7px; width: fit-content;">
+                                🚚 {{ case.estado_retiro_badge.label }}
+                            </span>
+                            <span class="badge" style="background: {{ case.estado_reembolso_badge.bg }}; color: {{ case.estado_reembolso_badge.color }}; font-size: 0.68rem; padding: 2px 7px; width: fit-content;">
+                                💳 {{ case.estado_reembolso_badge.label }}
+                            </span>
+                        </div>
+                        {% else %}
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">—</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ case.assigned_user.display_name if case.assigned_user else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">📭</div>
+        <p class="empty-state-text">No hay casos que mostrar.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

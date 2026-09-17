@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Bandeja Front Office — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="flex justify-between items-center">
+        <div>
+            <div class="sf-breadcrumb">Operación Front / Bandeja de Casos</div>
+            <h1 class="sf-page-title">📥 Bandeja de Entrada Front Office</h1>
+            <p class="sf-page-subtitle">Seguimiento de tus casos cargados y atención prioritaria a solicitudes de re-verificación.</p>
+        </div>
+        <a href="{{ url_for('front.nuevo_caso') }}" class="btn btn-primary">➕ Cargar Nuevo Caso</a>
+    </div>
+</div>
+
+<!-- Filtros por pestañas internas -->
+<div class="sf-inbox-tabs">
+    <a href="{{ url_for('front.bandeja_front', tab='devueltos') }}"
+       class="sf-inbox-tab {% if active_tab == 'devueltos' %}active{% endif %}">
+        <span>⚠️ Devueltos (Re-verificar / Rechazados)</span>
+        {% if count_devueltos > 0 %}
+        <span class="sf-counter-badge badge-warning">{{ count_devueltos }}</span>
+        {% endif %}
+    </a>
+    <a href="{{ url_for('front.bandeja_front', tab='activos') }}"
+       class="sf-inbox-tab {% if active_tab == 'activos' %}active{% endif %}">
+        <span>🔄 En Gestión Back Office</span>
+        <span class="sf-counter-badge">{{ count_activos }}</span>
+    </a>
+    <a href="{{ url_for('front.bandeja_front', tab='resueltos') }}"
+       class="sf-inbox-tab {% if active_tab == 'resueltos' %}active{% endif %}">
+        <span>✅ Resueltos / Cerrados</span>
+        <span class="sf-counter-badge badge-success">{{ count_resueltos }}</span>
+    </a>
+</div>
+
+<div class="card mt-4">
+    {% if cases %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Tipo de Caso</th>
+                    <th>N° Pedido</th>
+                    <th>Estado</th>
+                    {% if active_tab == 'devueltos' %}
+                    <th style="min-width: 250px;">Nota / Motivo de Back Office</th>
+                    {% else %}
+                    <th>Solicitud</th>
+                    {% endif %}
+                    <th>Agente Back</th>
+                    <th>Última Actualización</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for case in cases %}
+                <tr class="clickable-row {% if case.status == 'reverificar' %}row-highlight-warning{% elif case.status == 'rechazado' %}row-highlight-danger{% endif %}"
+                    onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
+                    <td><strong>#{{ case.id }}</strong></td>
+                    <td>
+                        <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                            {{ case.typology_badge.label }}
+                        </span>
+                    </td>
+                    <td style="font-weight: 600; color: var(--text-primary);">{{ case.pedido_id or '—' }}</td>
+                    <td><span class="badge badge-{{ case.status }}">{{ case.status_label }}</span></td>
+
+                    {% if active_tab == 'devueltos' %}
+                    <td>
+                        {% if case.status == 'reverificar' %}
+                        <div style="color: #fb923c; font-size: 0.85rem; font-weight: 600;">
+                            ⚠️ Pedido de Re-verificación:
+                        </div>
+                        <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 2px;">
+                            {{ case.motivo_reverificacion or 'Verificar datos del cliente.' }}
+                        </div>
+                        {% elif case.status == 'rechazado' %}
+                        <div style="color: #f87171; font-size: 0.85rem; font-weight: 600;">
+                            🚫 Motivo de Rechazo:
+                        </div>
+                        <div style="font-size: 0.82rem; color: var(--text-secondary); margin-top: 2px;">
+                            {{ case.motivo_rechazo or 'Sin detalle especificado.' }}
+                        </div>
+                        {% endif %}
+                    </td>
+                    {% else %}
+                    <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {{ case.solicitud or '—' }}
+                    </td>
+                    {% endif %}
+
+                    <td>{{ case.assigned_user.display_name if case.assigned_user else 'Sin asignar' }}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        {{ case.updated_at.strftime('%d/%m/%Y %H:%M') if case.updated_at else '—' }}
+                    </td>
+                    <td>
+                        {% if case.status in ['reverificar', 'rechazado'] %}
+                        <a href="{{ url_for('dashboard.case_detail', case_id=case.id) }}"
+                           class="btn btn-warning btn-sm" onclick="event.stopPropagation()">
+                            ✏️ Corregir
+                        </a>
+                        {% else %}
+                        <a href="{{ url_for('dashboard.case_detail', case_id=case.id) }}"
+                           class="btn btn-secondary btn-sm" onclick="event.stopPropagation()">
+                            Ver Detalle
+                        </a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-state-icon">
+            {% if active_tab == 'devueltos' %}🎉{% else %}📭{% endif %}
+        </div>
+        <p class="empty-state-text">
+            {% if active_tab == 'devueltos' %}
+            No tenés casos devueltos ni pendientes de re-verificación. ¡Excelente trabajo!
+            {% else %}
+            No hay casos en esta sección.
+            {% endif %}
+        </p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+
+{% block title %}Tipos de Casos (Tipologías) — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="sf-page-header">
+    <div class="sf-breadcrumb">
+        <a href="{{ url_for('dashboard.index') }}">Inicio</a> / <a href="{{ url_for('admin.usuarios') }}">Administración</a> / Tipos de Casos
+    </div>
+    <div class="flex justify-between items-center" style="margin-top: 6px;">
+        <div>
+            <h1 class="sf-page-title">🏷️ Gestor de Tipos de Casos (Tipologías)</h1>
+            <p class="sf-page-subtitle">
+                Creá nuevas tipologías de reclamos y administrá las existentes con sus colores distintivos y sub-roles.
+            </p>
+        </div>
+        <button class="btn btn-primary" onclick="openCreateModal()">
+            ＋ Nuevo Tipo de Caso
+        </button>
+    </div>
+</div>
+
+<div class="card" style="margin-top: 20px;">
+    <div class="card-header flex justify-between items-center">
+        <h2 class="card-title">Tipologías Registradas ({{ sheets_info|length }})</h2>
+        <span style="font-size: 0.82rem; color: var(--text-muted);">
+            Las tipologías activas aparecen en el alta de casos y enrutamiento por sub-roles.
+        </span>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Etiqueta / Badge</th>
+                    <th>Nombre de la Tipología</th>
+                    <th>Color HEX</th>
+                    <th>Casos Totales</th>
+                    <th>Casos Activos</th>
+                    <th>Estado</th>
+                    <th style="text-align: right;">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in sheets_info %}
+                {% set s = item.sheet %}
+                <tr>
+                    <td>
+                        <span class="badge-tipologia {{ s.badge_style.css_class }}" style="background-color: {{ s.badge_style.bg }}; color: {{ s.badge_style.color }};">
+                            {{ s.badge_style.label }}
+                        </span>
+                    </td>
+                    <td>
+                        <div style="font-weight: 700; color: #f8fafc;">{{ s.display_name }}</div>
+                        <div style="font-size: 0.74rem; color: var(--text-muted);">{{ s.sheet_name }}</div>
+                    </td>
+                    <td>
+                        <div class="flex items-center gap-2">
+                            <span style="display: inline-block; width: 16px; height: 16px; border-radius: 4px; background: {{ s.color }}; border: 1px solid rgba(255,255,255,0.2);"></span>
+                            <code>{{ s.color }}</code>
+                        </div>
+                    </td>
+                    <td style="font-weight: 600;">{{ item.total_cases }}</td>
+                    <td>
+                        <span class="badge {% if item.active_cases > 0 %}badge-nuevo{% else %}badge-cerrado{% endif %}">
+                            {{ item.active_cases }} pendientes
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge {% if s.is_active %}badge-resuelto{% else %}badge-cerrado{% endif %}">
+                            {{ 'Activo' if s.is_active else 'Desactivado' }}
+                        </span>
+                    </td>
+                    <td style="text-align: right;">
+                        <div class="flex gap-2" style="justify-content: flex-end;">
+                            <button class="btn btn-secondary btn-sm"
+                                    onclick="openEditModal({{ s.id }}, '{{ s.display_name|replace("'", "\\'") }}', '{{ s.color }}', '{{ s.description|default('', true)|replace("'", "\\'") }}')"
+                                    title="Editar tipología">
+                                ✏️ Editar
+                            </button>
+                            <form method="POST" action="{{ url_for('admin.toggle_tipo_caso', sheet_id=s.id) }}" style="display: inline;">
+                                <button type="submit" class="btn btn-secondary btn-sm"
+                                        title="{{ 'Desactivar' if s.is_active else 'Activar' }}">
+                                    {{ '⏸️' if s.is_active else '▶️' }}
+                                </button>
+                            </form>
+                            {% if item.total_cases == 0 %}
+                            <form method="POST" action="{{ url_for('admin.eliminar_tipo_caso', sheet_id=s.id) }}"
+                                  style="display: inline;"
+                                  onsubmit="return confirm('¿Seguro que deseas eliminar la tipología {{ s.display_name }}?');">
+                                <button type="submit" class="btn btn-danger btn-sm" title="Eliminar">
+                                    🗑️
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Modal: Crear Tipo de Caso -->
+<div class="modal-overlay" id="modal-crear-tipo">
+    <div class="modal">
+        <h2 class="modal-title">➕ Nuevo Tipo de Caso (Tipología)</h2>
+        <form method="POST" action="{{ url_for('admin.crear_tipo_caso') }}">
+            <div class="form-group">
+                <label class="form-label">Nombre de la Tipología *</label>
+                <input type="text" name="display_name" id="create-name" class="form-input" required
+                       placeholder="ej: CAMBIO POR GARANTIA" oninput="updateCreatePreview()">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Color Distintivo del Badge *</label>
+                <div class="flex items-center gap-3">
+                    <input type="color" name="color" id="create-color" value="#0284c7"
+                           style="width: 50px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
+                           onchange="updateCreatePreview()">
+                    <input type="text" id="create-color-hex" class="form-input" value="#0284c7" style="max-width: 120px;"
+                           oninput="document.getElementById('create-color').value = this.value; updateCreatePreview()">
+                    
+                    <!-- Previsualización -->
+                    <div style="margin-left: 10px;">
+                        <span id="create-preview-badge" class="badge-tipologia" style="background-color: #0284c7; color: #ffffff;">
+                            Vista Previa
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Descripción / Instrucciones (Opcional)</label>
+                <textarea name="description" class="form-textarea" rows="2" placeholder="Indicaciones para agentes Front y Back..."></textarea>
+            </div>
+
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">🚀 Crear Tipología</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Editar Tipo de Caso -->
+<div class="modal-overlay" id="modal-editar-tipo">
+    <div class="modal">
+        <h2 class="modal-title">✏️ Modificar Tipo de Caso</h2>
+        <form method="POST" id="form-editar-tipo" action="">
+            <div class="form-group">
+                <label class="form-label">Nombre Visible de la Tipología</label>
+                <input type="text" name="display_name" id="edit-name" class="form-input" required oninput="updateEditPreview()">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Color Distintivo</label>
+                <div class="flex items-center gap-3">
+                    <input type="color" name="color" id="edit-color" value="#6366f1"
+                           style="width: 50px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
+                           onchange="updateEditPreview()">
+                    <input type="text" id="edit-color-hex" class="form-input" value="#6366f1" style="max-width: 120px;"
+                           oninput="document.getElementById('edit-color').value = this.value; updateEditPreview()">
+                    
+                    <!-- Previsualización -->
+                    <div style="margin-left: 10px;">
+                        <span id="edit-preview-badge" class="badge-tipologia" style="background-color: #6366f1; color: #ffffff;">
+                            Vista Previa
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Descripción / Notas</label>
+                <textarea name="description" id="edit-description" class="form-textarea" rows="2"></textarea>
+            </div>
+
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
+                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">💾 Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openCreateModal() {
+    document.getElementById('modal-crear-tipo').classList.add('active');
+    updateCreatePreview();
+}
+function closeCreateModal() {
+    document.getElementById('modal-crear-tipo').classList.remove('active');
+}
+
+function updateCreatePreview() {
+    const nameInput = document.getElementById('create-name');
+    const colorInput = document.getElementById('create-color');
+    const colorHex = document.getElementById('create-color-hex');
+    const preview = document.getElementById('create-preview-badge');
+
+    const label = nameInput.value.trim() || 'Vista Previa';
+    const color = colorInput.value;
+    colorHex.value = color;
+
+    preview.innerText = label;
+    preview.style.backgroundColor = color;
+    preview.style.color = isLightColor(color) ? '#0f172a' : '#ffffff';
+}
+
+function openEditModal(sheetId, name, color, desc) {
+    const form = document.getElementById('form-editar-tipo');
+    form.action = `/admin/tipos-casos/${sheetId}/editar`;
+
+    document.getElementById('edit-name').value = name;
+    document.getElementById('edit-color').value = color || '#6366f1';
+    document.getElementById('edit-color-hex').value = color || '#6366f1';
+    document.getElementById('edit-description').value = desc || '';
+
+    document.getElementById('modal-editar-tipo').classList.add('active');
+    updateEditPreview();
+}
+
+function closeEditModal() {
+    document.getElementById('modal-editar-tipo').classList.remove('active');
+}
+
+function updateEditPreview() {
+    const name = document.getElementById('edit-name').value.trim() || 'Tipología';
+    const color = document.getElementById('edit-color').value;
+    document.getElementById('edit-color-hex').value = color;
+    const preview = document.getElementById('edit-preview-badge');
+
+    preview.innerText = name;
+    preview.style.backgroundColor = color;
+    preview.style.color = isLightColor(color) ? '#0f172a' : '#ffffff';
+}
+
+function isLightColor(hex) {
+    if (!hex || hex.length < 7) return false;
+    const r = parseInt(hex.substr(1, 2), 16);
+    const g = parseInt(hex.substr(3, 2), 16);
+    const b = parseInt(hex.substr(5, 2), 16);
+    return ((0.299 * r + 0.587 * g + 0.114 * b) / 255) > 0.6;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Asignaciones — CRM BGH{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1 class="page-title">Asignaciones de Colas (Sub-roles Back Office)</h1>
+    <p class="page-subtitle">
+        Configurá qué tipos de casos atiende cada agente de Back Office. Cuando se registre un caso de esa tipología, el sistema se lo asignará automáticamente al agente Back con menor carga activa de esa cola.
+    </p>
+</div>
+
+<form method="POST" action="{{ url_for('admin.guardar_asignaciones') }}">
+    <div class="assignments-grid">
+        {% for user in users %}
+        <div class="assignment-card">
+            <div class="assignment-user">
+                <div class="user-avatar">{{ user.display_name[0]|upper }}</div>
+                <div>
+                    <div class="user-name" style="font-size: 1rem;">{{ user.display_name }}</div>
+                    <div class="user-role" style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                        <span>@{{ user.username }}</span>
+                        <span class="badge" style="background: {{ user.role_badge_color }}22; color: {{ user.role_badge_color }}; border: 1px solid {{ user.role_badge_color }}44; font-size: 0.68rem; padding: 2px 6px;">
+                            {{ user.role_label }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="assignment-sheets">
+                {% for sheet in sheets %}
+                <div>
+                    <input type="checkbox"
+                           name="user_{{ user.id }}_sheets"
+                           value="{{ sheet.id }}"
+                           id="u{{ user.id }}_s{{ sheet.id }}"
+                           class="sheet-toggle"
+                           {% if sheet.id in assignments.get(user.id, []) %}checked{% endif %}>
+                    <label for="u{{ user.id }}_s{{ sheet.id }}" class="sheet-toggle-label"
+                           style="{% if sheet.id in assignments.get(user.id, []) %}background: {{ sheet.badge_style.bg }}; color: {{ sheet.badge_style.color }}; border-color: {{ sheet.badge_style.bg }};{% endif %}">
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: {{ sheet.badge_style.bg }}; display: inline-block;"></span>
+                        {{ sheet.badge_style.label }}
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div style="margin-top: 24px; text-align: right;">
+        <button type="submit" class="btn btn-primary">💾 Guardar Asignaciones</button>
+    </div>
+</form>
+{% endblock %}
