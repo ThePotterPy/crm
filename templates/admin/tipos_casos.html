@@ -74,7 +74,7 @@
                     <td style="text-align: right;">
                         <div class="flex gap-2" style="justify-content: flex-end;">
                             <button class="btn btn-secondary btn-sm"
-                                    onclick="openEditModal({{ s.id }}, '{{ s.display_name|replace("'", "\\'") }}', '{{ s.color }}', '{{ s.description|default('', true)|replace("'", "\\'") }}')"
+                                    onclick="openEditModal({{ s.id }}, '{{ s.display_name|replace("'", "\\'") }}', '{{ s.color }}', '{{ s.description|default('', true)|replace("'", "\\'") }}', {{ 'true' if s.is_active else 'false' }})"
                                     title="Editar tipología">
                                 ✏️ Editar
                             </button>
@@ -84,15 +84,11 @@
                                     {{ '⏸️' if s.is_active else '▶️' }}
                                 </button>
                             </form>
-                            {% if item.total_cases == 0 %}
-                            <form method="POST" action="{{ url_for('admin.eliminar_tipo_caso', sheet_id=s.id) }}"
-                                  style="display: inline;"
-                                  onsubmit="return confirm('¿Seguro que deseas eliminar la tipología {{ s.display_name }}?');">
-                                <button type="submit" class="btn btn-danger btn-sm" title="Eliminar">
-                                    🗑️
-                                </button>
-                            </form>
-                            {% endif %}
+                            <button type="button" class="btn btn-danger btn-sm"
+                                    onclick="openDeleteModal({{ s.id }}, '{{ s.display_name|replace("'", "\\'") }}', {{ item.total_cases }})"
+                                    title="Eliminar tipología">
+                                🗑️
+                            </button>
                         </div>
                     </td>
                 </tr>
@@ -177,9 +173,57 @@
                 <textarea name="description" id="edit-description" class="form-textarea" rows="2"></textarea>
             </div>
 
+            <div class="form-group" style="margin-top: 14px; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                <label class="flex items-center gap-2" style="cursor: pointer; color: #f8fafc; font-size: 0.88rem; margin-bottom: 0;">
+                    <input type="checkbox" name="is_active" id="edit-active" value="1" style="accent-color: var(--color-primary); width: 18px; height: 18px;">
+                    <span><strong>Tipología Activa</strong> (habilitada para altas y asignaciones)</span>
+                </label>
+            </div>
+
             <div class="flex justify-between items-center" style="margin-top: 24px;">
                 <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Cancelar</button>
                 <button type="submit" class="btn btn-primary">💾 Guardar Cambios</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Eliminar Tipo de Caso -->
+<div class="modal-overlay" id="modal-eliminar-tipo">
+    <div class="modal" style="max-width: 520px;">
+        <h2 class="modal-title" style="color: #ef4444;">🗑️ Eliminar Tipo de Caso</h2>
+        <form method="POST" id="form-eliminar-tipo" action="">
+            <div style="margin-bottom: 16px; color: #e2e8f0; line-height: 1.5;">
+                ¿Confirmás que deseás eliminar la tipología <strong id="delete-name" style="color: #f8fafc;"></strong>?
+            </div>
+
+            <!-- Advertencia y reasignación si tiene casos -->
+            <div id="delete-warning-has-cases" style="display: none; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 14px; margin-bottom: 18px;">
+                <div style="color: #fca5a5; font-weight: 600; font-size: 0.9rem; margin-bottom: 6px;">
+                    ⚠️ Atención: Posee <span id="delete-cases-count" style="font-weight: 700; text-decoration: underline;"></span> caso(s) registrado(s).
+                </div>
+                <div style="color: #cbd5e1; font-size: 0.82rem; margin-bottom: 12px;">
+                    Para mantener la trazabilidad e historial de los tickets, seleccioná a qué tipo de caso deseás reasignar los casos existentes:
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.82rem; color: #f8fafc;">Reasignar casos a:</label>
+                    <select name="reassign_to" id="delete-reassign-select" class="form-select" style="background: #1e293b; color: #ffffff;">
+                        {% for item in sheets_info %}
+                        <option value="{{ item.sheet.id }}" data-sheet-id="{{ item.sheet.id }}">
+                            {{ item.sheet.display_name }} ({{ item.total_cases }} casos actuales)
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div id="delete-info-no-cases" style="display: none; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 12px; margin-bottom: 18px; color: #94a3b8; font-size: 0.85rem;">
+                ℹ️ Esta tipología no tiene casos asociados. Se eliminará de forma limpia e inmediata.
+            </div>
+
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
+                <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Cancelar</button>
+                <button type="submit" class="btn btn-danger" id="delete-submit-btn">🗑️ Confirmar Eliminación</button>
             </div>
         </form>
     </div>
@@ -209,7 +253,7 @@ function updateCreatePreview() {
     preview.style.color = isLightColor(color) ? '#0f172a' : '#ffffff';
 }
 
-function openEditModal(sheetId, name, color, desc) {
+function openEditModal(sheetId, name, color, desc, isActive) {
     const form = document.getElementById('form-editar-tipo');
     form.action = `/admin/tipos-casos/${sheetId}/editar`;
 
@@ -217,6 +261,7 @@ function openEditModal(sheetId, name, color, desc) {
     document.getElementById('edit-color').value = color || '#6366f1';
     document.getElementById('edit-color-hex').value = color || '#6366f1';
     document.getElementById('edit-description').value = desc || '';
+    document.getElementById('edit-active').checked = !!isActive;
 
     document.getElementById('modal-editar-tipo').classList.add('active');
     updateEditPreview();
@@ -236,6 +281,65 @@ function updateEditPreview() {
     preview.style.backgroundColor = color;
     preview.style.color = isLightColor(color) ? '#0f172a' : '#ffffff';
 }
+
+function openDeleteModal(sheetId, name, totalCases) {
+    const form = document.getElementById('form-eliminar-tipo');
+    form.action = `/admin/tipos-casos/${sheetId}/eliminar`;
+
+    document.getElementById('delete-name').innerText = `"${name}"`;
+
+    const warningHasCases = document.getElementById('delete-warning-has-cases');
+    const infoNoCases = document.getElementById('delete-info-no-cases');
+    const selectEl = document.getElementById('delete-reassign-select');
+    const casesCountSpan = document.getElementById('delete-cases-count');
+
+    if (totalCases > 0) {
+        warningHasCases.style.display = 'block';
+        infoNoCases.style.display = 'none';
+        casesCountSpan.innerText = totalCases;
+
+        // Filtrar el select para que no permita reasignar a la misma tipología
+        let firstAvailable = null;
+        Array.from(selectEl.options).forEach(opt => {
+            if (parseInt(opt.getAttribute('data-sheet-id')) === sheetId) {
+                opt.style.display = 'none';
+                opt.disabled = true;
+            } else {
+                opt.style.display = '';
+                opt.disabled = false;
+                if (!firstAvailable) firstAvailable = opt.value;
+            }
+        });
+        if (firstAvailable) {
+            selectEl.value = firstAvailable;
+        }
+    } else {
+        warningHasCases.style.display = 'none';
+        infoNoCases.style.display = 'block';
+    }
+
+    document.getElementById('modal-eliminar-tipo').classList.add('active');
+}
+
+function closeDeleteModal() {
+    document.getElementById('modal-eliminar-tipo').classList.remove('active');
+}
+
+// Cierre al hacer click en el overlay oscuro
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+        if (e.target === overlay) {
+            overlay.classList.remove('active');
+        }
+    });
+});
+
+// Cierre con tecla Escape
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(modal => modal.classList.remove('active'));
+    }
+});
 
 function isLightColor(hex) {
     if (!hex || hex.length < 7) return false;

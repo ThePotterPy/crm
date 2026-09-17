@@ -324,12 +324,14 @@ def editar_tipo_caso(sheet_id):
     display_name = request.form.get("display_name", "").strip()
     color = request.form.get("color", "").strip()
     description = request.form.get("description", "").strip()
+    is_active = request.form.get("is_active") == "1"
 
     if display_name:
         sheet.display_name = display_name
     if color:
         sheet.color = color
     sheet.description = description
+    sheet.is_active = is_active
 
     db.session.commit()
     flash(f"Tipo de caso '{sheet.display_name}' modificado correctamente.", "success")
@@ -353,12 +355,34 @@ def toggle_tipo_caso(sheet_id):
 @supervisor_or_admin_required
 def eliminar_tipo_caso(sheet_id):
     sheet = SheetConfig.query.get_or_404(sheet_id)
+    reassign_to = request.form.get("reassign_to", type=int)
+
     cases_count = Case.query.filter_by(sheet_config_id=sheet.id).count()
     if cases_count > 0:
-        flash(f"No se puede eliminar '{sheet.display_name}' porque posee {cases_count} casos históricos. Podés desactivarlo para que no reciba nuevas altas.", "error")
-        return redirect(url_for("admin.tipos_casos"))
+        if not reassign_to:
+            # Buscar tipología de respaldo (ej. 'Otros' o la primera activa disponible)
+            fallback = SheetConfig.query.filter(
+                SheetConfig.id != sheet.id,
+                SheetConfig.display_name.ilike("%otros%")
+            ).first() or SheetConfig.query.filter(SheetConfig.id != sheet.id, SheetConfig.is_active == True).first()
 
+            if fallback:
+                reassign_to = fallback.id
+            else:
+                flash("No podés eliminar la única tipología existente.", "error")
+                return redirect(url_for("admin.tipos_casos"))
+
+        target_sheet = SheetConfig.query.get_or_404(reassign_to)
+        Case.query.filter_by(sheet_config_id=sheet.id).update({"sheet_config_id": target_sheet.id})
+        db.session.commit()
+        flash(f"Se reasignaron automáticamente {cases_count} caso(s) a '{target_sheet.display_name}'.", "info")
+
+    name = sheet.display_name
+    # Limpiar asignaciones de usuarios antes de borrar la hoja
+    db.session.execute(
+        user_sheet_assignments.delete().where(user_sheet_assignments.c.sheet_config_id == sheet.id)
+    )
     db.session.delete(sheet)
     db.session.commit()
-    flash(f"Tipo de caso '{sheet.display_name}' eliminado.", "success")
+    flash(f"Tipo de caso '{name}' eliminado exitosamente.", "success")
     return redirect(url_for("admin.tipos_casos"))

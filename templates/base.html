@@ -101,10 +101,18 @@
                 </a>
                 {% endif %}
 
+                {% if current_user.can_manage_case_types %}
+                <a href="{{ url_for('admin.tipos_casos') }}"
+                   class="sf-tab {% if request.endpoint == 'admin.tipos_casos' %}active{% endif %}">
+                    <span class="sf-tab-icon">🏷️</span>
+                    <span>Tipos de Casos</span>
+                </a>
+                {% endif %}
+
                 {% if current_user.can_manage_users %}
                 <div class="sf-tab-dropdown">
                     <a href="{{ url_for('admin.usuarios') }}"
-                       class="sf-tab {% if 'admin' in request.endpoint|default('') %}active{% endif %}">
+                       class="sf-tab {% if 'admin' in request.endpoint|default('') and request.endpoint != 'admin.tipos_casos' %}active{% endif %}">
                         <span class="sf-tab-icon">⚙️</span>
                         <span>Administración ▾</span>
                     </a>
