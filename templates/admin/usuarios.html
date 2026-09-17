@@ -61,8 +61,13 @@
                         </span>
                     </td>
                     <td>
-                        <div class="flex gap-3" style="gap: 6px;">
-                            <form method="POST" action="{{ url_for('admin.toggle_usuario', user_id=user.id) }}">
+                        <div class="flex gap-2" style="gap: 6px;">
+                            <button class="btn btn-secondary btn-sm"
+                                    onclick="openEditUserModal({{ user.id }}, '{{ user.username }}', '{{ user.display_name|replace("'", "\\'") }}', '{{ user.role }}', {{ 'true' if user.is_active_user else 'false' }}, {{ user.assigned_sheets.all() | map(attribute='id') | list | tojson }})"
+                                    title="Editar usuario y tipologías asignadas">
+                                ✏️
+                            </button>
+                            <form method="POST" action="{{ url_for('admin.toggle_usuario', user_id=user.id) }}" style="display: inline;">
                                 <button type="submit" class="btn btn-secondary btn-sm"
                                         title="{{ 'Desactivar' if user.is_active_user else 'Activar' }}">
                                     {{ '🔒' if user.is_active_user else '🔓' }}
@@ -82,7 +87,7 @@
 
 <!-- Modal Crear Usuario -->
 <div class="modal-overlay" id="modal-crear">
-    <div class="modal">
+    <div class="modal" style="max-width: 560px;">
         <h2 class="modal-title">Nuevo Usuario</h2>
         <form method="POST" action="{{ url_for('admin.crear_usuario') }}">
             <div class="form-group">
@@ -109,12 +114,102 @@
                     <option value="admin">Administrador (Control total)</option>
                 </select>
             </div>
-            <div class="flex gap-3" style="margin-top: 20px;">
-                <button type="submit" class="btn btn-primary">Crear Usuario</button>
+
+            <!-- Tipos de Casos Asignados al Crear -->
+            <div class="form-group" style="margin-top: 14px;">
+                <div class="flex justify-between items-center" style="margin-bottom: 6px;">
+                    <label class="form-label" style="font-weight: 600; margin-bottom: 0;">🏷️ Tipos de Casos Asignados (Colas que atenderá)</label>
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="selectAllSheets('create-sheets-container')">Todos</button>
+                        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="deselectAllSheets('create-sheets-container')">Ninguno</button>
+                    </div>
+                </div>
+                <div id="create-sheets-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                    {% for sheet in sheets %}
+                    <label class="flex items-center gap-2" style="cursor: pointer; font-size: 0.85rem; color: #f8fafc; margin-bottom: 0; background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                        <input type="checkbox" name="sheet_ids" value="{{ sheet.id }}" style="accent-color: var(--color-primary); width: 16px; height: 16px;" checked>
+                        <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="padding: 2px 8px; font-size: 0.75rem;">
+                            {{ sheet.badge_style.label }}
+                        </span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <small style="color: var(--text-muted); font-size: 0.76rem; display: block; margin-top: 4px;">
+                    Los casos de estas tipologías le caerán automáticamente en su bandeja al usuario.
+                </small>
+            </div>
+
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
                 <button type="button" class="btn btn-secondary"
                         onclick="document.getElementById('modal-crear').classList.remove('active')">
                     Cancelar
                 </button>
+                <button type="submit" class="btn btn-primary">Crear Usuario</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal Editar Usuario y Asignaciones -->
+<div class="modal-overlay" id="modal-editar">
+    <div class="modal" style="max-width: 560px;">
+        <h2 class="modal-title">✏️ Modificar Usuario y Tipologías Asignadas</h2>
+        <form method="POST" id="form-editar-usuario" action="">
+            <div class="form-group">
+                <label class="form-label">Nombre de Usuario</label>
+                <input type="text" id="edit-username" class="form-input" disabled style="opacity: 0.7; cursor: not-allowed; background: rgba(255,255,255,0.05);">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Nombre Completo</label>
+                <input type="text" name="display_name" id="edit-display-name" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Rol Operativo</label>
+                <select name="role" id="edit-role" class="form-select">
+                    <option value="agente_back">Agente Back Office (Gestión de casos)</option>
+                    <option value="agente_front">Agente Front Office (Creación y re-envío)</option>
+                    <option value="supervisor">Supervisor (Control general y asignaciones)</option>
+                    <option value="tyq">Training & Quality (Auditoría TYQ)</option>
+                    <option value="admin">Administrador (Control total)</option>
+                </select>
+            </div>
+            <div class="form-group" style="padding: 8px 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                <label class="flex items-center gap-2" style="cursor: pointer; color: #f8fafc; font-size: 0.88rem; margin-bottom: 0;">
+                    <input type="checkbox" name="is_active" id="edit-is-active" value="1" style="accent-color: var(--color-primary); width: 18px; height: 18px;">
+                    <span><strong>Usuario Activo</strong> (habilitado para operar en el CRM)</span>
+                </label>
+            </div>
+
+            <!-- Tipos de Casos Asignados al Modificar -->
+            <div class="form-group" style="margin-top: 14px;">
+                <div class="flex justify-between items-center" style="margin-bottom: 6px;">
+                    <label class="form-label" style="font-weight: 600; margin-bottom: 0;">🏷️ Tipos de Casos Asignados (Tipologías que atenderá)</label>
+                    <div class="flex gap-2">
+                        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="selectAllSheets('edit-sheets-container')">Todos</button>
+                        <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="deselectAllSheets('edit-sheets-container')">Ninguno</button>
+                    </div>
+                </div>
+                <div id="edit-sheets-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 180px; overflow-y: auto; padding: 10px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                    {% for sheet in sheets %}
+                    <label class="flex items-center gap-2" style="cursor: pointer; font-size: 0.85rem; color: #f8fafc; margin-bottom: 0; background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
+                        <input type="checkbox" name="sheet_ids" value="{{ sheet.id }}" style="accent-color: var(--color-primary); width: 16px; height: 16px;">
+                        <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="padding: 2px 8px; font-size: 0.75rem;">
+                            {{ sheet.badge_style.label }}
+                        </span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <small style="color: var(--text-muted); font-size: 0.76rem; display: block; margin-top: 4px;">
+                    Marcá o desmarcá las tipologías para definir qué tickets le caerán a este agente.
+                </small>
+            </div>
+
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
+                <button type="button" class="btn btn-secondary"
+                        onclick="document.getElementById('modal-editar').classList.remove('active')">
+                    Cancelar
+                </button>
+                <button type="submit" class="btn btn-primary">💾 Guardar Cambios</button>
             </div>
         </form>
     </div>
@@ -130,12 +225,12 @@
                 <label class="form-label">Nueva Contraseña</label>
                 <input type="password" name="new_password" class="form-input" required>
             </div>
-            <div class="flex gap-3" style="margin-top: 20px;">
-                <button type="submit" class="btn btn-primary">Cambiar</button>
+            <div class="flex justify-between items-center" style="margin-top: 20px;">
                 <button type="button" class="btn btn-secondary"
                         onclick="document.getElementById('modal-reset').classList.remove('active')">
                     Cancelar
                 </button>
+                <button type="submit" class="btn btn-primary">Cambiar</button>
             </div>
         </form>
     </div>
@@ -145,6 +240,36 @@
 
 {% block scripts %}
 <script>
+function openEditUserModal(userId, username, displayName, role, isActive, assignedSheetIds) {
+    document.getElementById('form-editar-usuario').action = `/admin/usuarios/${userId}/editar`;
+    document.getElementById('edit-username').value = username;
+    document.getElementById('edit-display-name').value = displayName;
+    document.getElementById('edit-role').value = role;
+    document.getElementById('edit-is-active').checked = !!isActive;
+
+    const container = document.getElementById('edit-sheets-container');
+    container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        const sid = parseInt(cb.value);
+        cb.checked = assignedSheetIds.includes(sid);
+    });
+
+    document.getElementById('modal-editar').classList.add('active');
+}
+
+function selectAllSheets(containerId) {
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    }
+}
+
+function deselectAllSheets(containerId) {
+    const container = document.getElementById(containerId);
+    if (container) {
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+    }
+}
+
 function openResetModal(userId, displayName) {
     document.getElementById('reset-info').textContent = 'Cambiando contraseña de: ' + displayName;
     document.getElementById('reset-form').action = '/admin/usuarios/' + userId + '/reset-password';
@@ -156,6 +281,13 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', e => {
         if (e.target === overlay) overlay.classList.remove('active');
     });
+});
+
+// Close modals on Escape key
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay.active').forEach(m => m.classList.remove('active'));
+    }
 });
 </script>
 {% endblock %}

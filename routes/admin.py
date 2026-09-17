@@ -26,7 +26,8 @@ def supervisor_or_admin_required(f):
 @supervisor_or_admin_required
 def usuarios():
     users = User.query.order_by(User.display_name).all()
-    return render_template("admin/usuarios.html", users=users)
+    sheets = SheetConfig.query.filter_by(is_active=True).order_by(SheetConfig.display_name).all()
+    return render_template("admin/usuarios.html", users=users, sheets=sheets)
 
 
 @admin_bp.route("/usuarios/crear", methods=["POST"])
@@ -37,6 +38,7 @@ def crear_usuario():
     display_name = request.form.get("display_name", "").strip()
     password = request.form.get("password", "")
     role = request.form.get("role", "agente_back")
+    sheet_ids = request.form.getlist("sheet_ids")
 
     if not username or not password or not display_name:
         flash("Todos los campos son obligatorios.", "error")
@@ -46,13 +48,61 @@ def crear_usuario():
         flash(f"El usuario '{username}' ya existe.", "error")
         return redirect(url_for("admin.usuarios"))
 
-    user = User(username=username, display_name=display_name, role=role)
+    user = User(username=username, display_name=display_name, role=role, is_active_user=True)
     user.set_password(password)
     db.session.add(user)
-    db.session.commit()
+    db.session.flush()
 
-    flash(f"Usuario '{display_name}' creado.", "success")
+    for sid in sheet_ids:
+        try:
+            sheet = SheetConfig.query.get(int(sid))
+            if sheet:
+                user.assigned_sheets.append(sheet)
+        except Exception:
+            pass
+
+    db.session.commit()
+    assigned_count = user.assigned_sheets.count()
+    flash(f"Usuario '{display_name}' creado con {assigned_count} tipo(s) de caso asignado(s).", "success")
     return redirect(url_for("admin.usuarios"))
+
+
+@admin_bp.route("/usuarios/<int:user_id>/editar", methods=["POST"])
+@login_required
+@supervisor_or_admin_required
+def editar_usuario(user_id):
+    user = User.query.get_or_404(user_id)
+    display_name = request.form.get("display_name", "").strip()
+    role = request.form.get("role", user.role)
+    is_active = (request.form.get("is_active") == "1")
+    sheet_ids = request.form.getlist("sheet_ids")
+
+    if display_name:
+        user.display_name = display_name
+    if role:
+        user.role = role
+
+    # No permitir que el usuario actual se inactive a sí mismo
+    if user.id != current_user.id:
+        user.is_active_user = is_active
+
+    # Actualizar tipologías asignadas
+    db.session.execute(
+        user_sheet_assignments.delete().where(user_sheet_assignments.c.user_id == user.id)
+    )
+    for sid in sheet_ids:
+        try:
+            sheet = SheetConfig.query.get(int(sid))
+            if sheet:
+                user.assigned_sheets.append(sheet)
+        except Exception:
+            pass
+
+    db.session.commit()
+    assigned_count = user.assigned_sheets.count()
+    flash(f"Usuario '{user.display_name}' actualizado con {assigned_count} tipo(s) de caso asignado(s).", "success")
+    return redirect(url_for("admin.usuarios"))
+
 
 
 @admin_bp.route("/usuarios/<int:user_id>/toggle", methods=["POST"])
