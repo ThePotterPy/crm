@@ -56,9 +56,14 @@ def create_app():
             return {"my_assigned_cases_count": assigned_count}
         return {"my_assigned_cases_count": 0}
 
-    # ── Crear tablas ──
+    # ── Crear tablas y auto-inicializar usuarios base si la BD es nueva ──
     with app.app_context():
         db.create_all()
+        try:
+            from seed import run_seed
+            run_seed()
+        except Exception as e:
+            app.logger.warning(f"Auto-seed warning: {e}")
 
     return app
 

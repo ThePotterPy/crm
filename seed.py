@@ -6,10 +6,7 @@ Uso:
     python seed.py
 """
 import json
-from app import create_app
 from models import db, User, SheetConfig
-
-app = create_app()
 
 SHEETS = [
     {
@@ -320,108 +317,114 @@ SHEETS = [
 ]
 
 
+def run_seed():
+    """Inicializa usuarios base y tipologías si no existen."""
+    # ── Admin ──
+    admin = User.query.filter_by(username="admin").first()
+    if not admin:
+        admin = User(username="admin", display_name="Administrador", role="admin")
+        admin.set_password("admin123")
+        admin.is_active_user = True
+        db.session.add(admin)
+        print("[OK] Admin creado (admin / admin123)")
+    else:
+        admin.role = "admin"
+        admin.is_active_user = True
+
+    # ── Supervisor ──
+    supervisor = User.query.filter_by(username="supervisor").first()
+    if not supervisor:
+        supervisor = User(username="supervisor", display_name="Mariana Valdez (Supervisora)", role="supervisor")
+        supervisor.set_password("super123")
+        supervisor.is_active_user = True
+        db.session.add(supervisor)
+        print("[OK] Supervisor creado (supervisor / super123)")
+    else:
+        supervisor.role = "supervisor"
+        supervisor.is_active_user = True
+
+    # ── Usuario Jorge (Back Office) ──
+    jorge = User.query.filter_by(username="jorge").first()
+    if not jorge:
+        jorge = User(username="jorge", display_name="Jorge Zolabarrieta", role="agente_back")
+        jorge.set_password("jorge123")
+        jorge.is_active_user = True
+        db.session.add(jorge)
+        print("[OK] Usuario Jorge creado (jorge / jorge123)")
+    else:
+        jorge.role = "agente_back"
+        jorge.is_active_user = True
+
+    # ── Usuario Front ──
+    front1 = User.query.filter_by(username="front").first()
+    if not front1:
+        front1 = User(username="front", display_name="Agustina Gómez (Front)", role="agente_front")
+        front1.set_password("front123")
+        front1.is_active_user = True
+        db.session.add(front1)
+        print("[OK] Usuario Front creado (front / front123)")
+    else:
+        front1.role = "agente_front"
+        front1.is_active_user = True
+
+    # ── Usuario TYQ (Calidad) ──
+    calidad1 = User.query.filter_by(username="calidad").first()
+    if not calidad1:
+        calidad1 = User(username="calidad", display_name="Lucas Pereyra (Calidad TYQ)", role="tyq")
+        calidad1.set_password("calidad123")
+        calidad1.is_active_user = True
+        db.session.add(calidad1)
+        print("[OK] Usuario TYQ creado (calidad / calidad123)")
+    else:
+        calidad1.role = "tyq"
+        calidad1.is_active_user = True
+
+    db.session.commit()
+
+    # ── Hojas / Tipologías ──
+    for sheet_data in SHEETS:
+        existing = SheetConfig.query.filter_by(sheet_name=sheet_data["sheet_name"]).first()
+        if not existing:
+            sheet = SheetConfig(
+                sheet_name=sheet_data["sheet_name"],
+                display_name=sheet_data["display_name"],
+                header_row=sheet_data["header_row"],
+                color=sheet_data["color"],
+                input_columns=json.dumps(sheet_data["input_columns"], ensure_ascii=False),
+                output_columns=json.dumps(sheet_data["output_columns"], ensure_ascii=False),
+                is_active=True,
+            )
+            db.session.add(sheet)
+            print(f"[OK] Hoja '{sheet_data['display_name']}' configurada")
+        else:
+            existing.input_columns = json.dumps(sheet_data["input_columns"], ensure_ascii=False)
+            existing.output_columns = json.dumps(sheet_data["output_columns"], ensure_ascii=False)
+            existing.header_row = sheet_data["header_row"]
+            existing.color = sheet_data["color"]
+
+    db.session.commit()
+
+    # ── Asignar hojas a administradores, supervisores y Jorge ──
+    for u in User.query.filter(User.role.in_(["admin", "supervisor", "agente_back"])).all():
+        for s in SheetConfig.query.all():
+            if s not in u.assigned_sheets.all():
+                u.assigned_sheets.append(s)
+
+    db.session.commit()
+
+
 def seed():
+    from app import create_app
+    app = create_app()
     with app.app_context():
-        # Crear tablas
         db.create_all()
-
-        # ── Admin ──
-        admin = User.query.filter_by(username="admin").first()
-        if not admin:
-            admin = User(username="admin", display_name="Administrador", role="admin")
-            admin.set_password("admin123")
-            db.session.add(admin)
-            print("[OK] Admin creado (admin / admin123)")
-        else:
-            admin.role = "admin"
-            print("[INFO] Admin ya existe")
-
-        # ── Supervisor ──
-        supervisor = User.query.filter_by(username="supervisor").first()
-        if not supervisor:
-            supervisor = User(username="supervisor", display_name="Mariana Valdez (Supervisora)", role="supervisor")
-            supervisor.set_password("super123")
-            db.session.add(supervisor)
-            print("[OK] Supervisor creado (supervisor / super123)")
-        else:
-            supervisor.role = "supervisor"
-            print("[INFO] Supervisor ya existe")
-
-        # ── Usuario Jorge (Back Office) ──
-        jorge = User.query.filter_by(username="jorge").first()
-        if not jorge:
-            jorge = User(username="jorge", display_name="Jorge Zolabarrieta", role="agente_back")
-            jorge.set_password("jorge123")
-            db.session.add(jorge)
-            print("[OK] Usuario Jorge creado (jorge / jorge123)")
-        else:
-            jorge.role = "agente_back"
-            print("[INFO] Jorge ya existe (rol agente_back)")
-
-        # ── Usuario Front ──
-        front1 = User.query.filter_by(username="front").first()
-        if not front1:
-            front1 = User(username="front", display_name="Agustina Gómez (Front)", role="agente_front")
-            front1.set_password("front123")
-            db.session.add(front1)
-            print("[OK] Usuario Front creado (front / front123)")
-        else:
-            front1.role = "agente_front"
-            print("[INFO] Front ya existe")
-
-        # ── Usuario TYQ (Calidad) ──
-        calidad1 = User.query.filter_by(username="calidad").first()
-        if not calidad1:
-            calidad1 = User(username="calidad", display_name="Lucas Pereyra (Calidad TYQ)", role="tyq")
-            calidad1.set_password("calidad123")
-            db.session.add(calidad1)
-            print("[OK] Usuario TYQ creado (calidad / calidad123)")
-        else:
-            calidad1.role = "tyq"
-            print("[INFO] Calidad ya existe")
-
-        db.session.commit()
-
-        # ── Hojas ──
-        for sheet_data in SHEETS:
-            existing = SheetConfig.query.filter_by(sheet_name=sheet_data["sheet_name"]).first()
-            if not existing:
-                sheet = SheetConfig(
-                    sheet_name=sheet_data["sheet_name"],
-                    display_name=sheet_data["display_name"],
-                    header_row=sheet_data["header_row"],
-                    color=sheet_data["color"],
-                    input_columns=json.dumps(sheet_data["input_columns"], ensure_ascii=False),
-                    output_columns=json.dumps(sheet_data["output_columns"], ensure_ascii=False),
-                    is_active=True,
-                )
-                db.session.add(sheet)
-                print(f"[OK] Hoja '{sheet_data['display_name']}' configurada")
-            else:
-                existing.input_columns = json.dumps(sheet_data["input_columns"], ensure_ascii=False)
-                existing.output_columns = json.dumps(sheet_data["output_columns"], ensure_ascii=False)
-                existing.header_row = sheet_data["header_row"]
-                existing.color = sheet_data["color"]
-                print(f"[INFO] Hoja '{sheet_data['display_name']}' actualizada")
-
-        db.session.commit()
-
-        # ── Asignar hojas a Jorge (Sub-roles de Back Office) ──
-        jorge = User.query.filter_by(username="jorge").first()
-        if jorge:
-            for s in SheetConfig.query.all():
-                if s not in jorge.assigned_sheets.all():
-                    jorge.assigned_sheets.append(s)
-
-        db.session.commit()
-        print("\n[OK] Seed completado con roles jerárquicos y sub-roles.")
-        print("\nCredenciales disponibles:")
+        run_seed()
+        print("\n[OK] Seed completado con éxito.")
         print("   Admin:       admin / admin123")
         print("   Supervisor:  supervisor / super123")
         print("   Back Office: jorge / jorge123")
         print("   Front:       front / front123")
         print("   Calidad TYQ: calidad / calidad123")
-        print("\nEjecuta: python app.py")
 
 
 if __name__ == "__main__":
