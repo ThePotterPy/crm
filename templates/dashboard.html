@@ -7,27 +7,51 @@
     <div style="display: flex; flex-direction: column; gap: 4px;">
         <h1 class="page-title" style="margin-bottom: 0;">Dashboard</h1>
         <p class="page-subtitle" style="margin-bottom: 0;">
-            {% if view_filter == 'asignados' %}
+            {% if view_filter in ('asignados', 'mis_casos') %}
             Tus casos asignados en atención activa
+            {% elif view_filter == 'vencidos' %}
+            🚨 Casos con compromiso de tiempo (SLA) vencido o en riesgo crítico
+            {% elif view_filter == 'sin_asignar' %}
+            📥 Cola de casos pendientes de asignación a un asesor de gestión
+            {% elif view_filter == 'reverificar' %}
+            ⚠️ Casos devueltos por Back Office para subsanación o re-verificación de Front Office
             {% else %}
-            Vista global de todos los casos del sistema CRM
+            Vista global operativa de todos los casos del CRM
             {% endif %}
         </p>
     </div>
 
-    <!-- Segmented View Switcher -->
-    <div class="sf-segmented-control" style="display: inline-flex; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px; gap: 4px;">
-        <a href="{{ url_for('dashboard.index', view='todos', status=status_filter, sheet=sheet_filter, q=search_query) }}"
+    <!-- Segmented View Switcher (Salesforce List Views & Wise Queues) -->
+    <div class="sf-segmented-control" style="display: inline-flex; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-color); border-radius: 8px; padding: 4px; gap: 4px; flex-wrap: wrap;">
+        <a href="{{ url_for('dashboard.index', view='todos', status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
            class="sf-segment-btn"
-           style="padding: 7px 16px; font-size: 0.85rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: all 0.2s; {% if view_filter != 'asignados' %}background: var(--accent-primary); color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: var(--text-secondary);{% endif %}">
-            <span>📋 Todos los Casos</span>
+           style="padding: 7px 13px; font-size: 0.82rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {% if view_filter == 'todos' %}background: var(--accent-primary); color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: var(--text-secondary);{% endif %}">
+            <span>📋 Todos</span>
             <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_todos }}</span>
         </a>
-        <a href="{{ url_for('dashboard.index', view='asignados', status=status_filter, sheet=sheet_filter, q=search_query) }}"
+        <a href="{{ url_for('dashboard.index', view='mis_casos', status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
            class="sf-segment-btn"
-           style="padding: 7px 16px; font-size: 0.85rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 8px; transition: all 0.2s; {% if view_filter == 'asignados' %}background: var(--accent-primary); color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: var(--text-secondary);{% endif %}">
-            <span>👤 Mis Casos Asignados</span>
-            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_asignados }}</span>
+           style="padding: 7px 13px; font-size: 0.82rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {% if view_filter in ('asignados', 'mis_casos') %}background: #2563eb; color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: var(--text-secondary);{% endif %}">
+            <span>👤 Mis Casos</span>
+            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_mis_casos }}</span>
+        </a>
+        <a href="{{ url_for('dashboard.index', view='vencidos', status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
+           class="sf-segment-btn"
+           style="padding: 7px 13px; font-size: 0.82rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {% if view_filter == 'vencidos' %}background: #dc2626; color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: #f87171;{% endif %}">
+            <span>🚨 SLA En Riesgo</span>
+            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_vencidos }}</span>
+        </a>
+        <a href="{{ url_for('dashboard.index', view='sin_asignar', status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
+           class="sf-segment-btn"
+           style="padding: 7px 13px; font-size: 0.82rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {% if view_filter == 'sin_asignar' %}background: #d97706; color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: #fbbf24;{% endif %}">
+            <span>📥 Sin Asignar</span>
+            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_sin_asignar }}</span>
+        </a>
+        <a href="{{ url_for('dashboard.index', view='reverificar', status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
+           class="sf-segment-btn"
+           style="padding: 7px 13px; font-size: 0.82rem; border-radius: 6px; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: all 0.2s; {% if view_filter == 'reverificar' %}background: #ea580c; color: #fff; font-weight: 600; box-shadow: 0 2px 4px rgba(0,0,0,0.25);{% else %}color: #fb923c;{% endif %}">
+            <span>⚠️ Re-verificar</span>
+            <span style="font-size: 0.72rem; opacity: 0.9; background: rgba(0,0,0,0.25); padding: 1px 7px; border-radius: 9999px;">{{ count_reverificar }}</span>
         </a>
     </div>
 </div>
@@ -71,25 +95,54 @@
     </div>
 </div>
 
-<!-- Filtros -->
+<!-- Tipología Tabs (Segmentación por Tipo de Caso) -->
+<div class="card" style="margin-bottom: 20px; padding: 12px 16px; background: rgba(30, 41, 59, 0.6); border: 1px solid var(--border-subtle);">
+    <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 10px;">
+        🏷️ Bandejas por Tipo de Caso:
+    </div>
+    <div style="display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px;" class="hide-scrollbar">
+        <a href="{{ url_for('dashboard.index', view=view_filter, status=status_filter, agente=assigned_filter, q=search_query) }}"
+           style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; text-decoration: none; transition: all 0.15s; white-space: nowrap; {% if not sheet_filter %}background: #3b82f6; color: #ffffff; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,0.3);{% else %}background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid var(--border-subtle);{% endif %}">
+            <span>Todas las tipologías</span>
+            <span style="font-size: 0.72rem; padding: 1px 6px; border-radius: 9999px; background: rgba(0,0,0,0.25);">{{ total_cases }}</span>
+        </a>
+        {% for tab in sheet_tabs %}
+        {% set s = tab.sheet %}
+        <a href="{{ url_for('dashboard.index', view=view_filter, status=status_filter, sheet=s.id, agente=assigned_filter, q=search_query) }}"
+           style="display: flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 6px; font-size: 0.82rem; text-decoration: none; transition: all 0.15s; white-space: nowrap; {% if tab.is_selected %}background: {{ s.badge_style.bg }}; color: {{ s.badge_style.color }}; font-weight: 700; box-shadow: 0 2px 5px rgba(0,0,0,0.35);{% else %}background: rgba(255,255,255,0.04); color: var(--text-secondary); border: 1px solid var(--border-subtle);{% endif %}">
+            <span style="width: 8px; height: 8px; border-radius: 50%; background-color: {{ s.badge_style.bg }};"></span>
+            <span>{{ s.badge_style.label }}</span>
+            <span style="font-size: 0.72rem; padding: 1px 6px; border-radius: 9999px; background: rgba(0,0,0,0.25); color: #ffffff;">
+                {{ tab.activos }}
+            </span>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- Filtros multidimensionales de búsqueda (Tipo, Estado, Quién Gestiona) -->
 <form method="GET" action="{{ url_for('dashboard.index') }}">
     <input type="hidden" name="view" value="{{ view_filter }}">
-    <div class="filters-bar">
-        <div class="search-input-wrapper">
+    <div class="filters-bar" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <div class="search-input-wrapper" style="flex: 1; min-width: 220px;">
             <input type="text" name="q" class="form-input search-input"
-                   placeholder="Buscar por N° pedido, solicitud, DNI, tracking, cliente..."
+                   placeholder="Buscar por N° Pedido, Caso Wise, Tracking, SAP, Solicitud, Tienda..."
                    value="{{ search_query }}">
         </div>
-        <select name="sheet" class="form-select" style="width: 220px;" onchange="this.form.submit()">
-            <option value="">Todos los tipos de caso</option>
-            {% for sheet in sheets %}
-            <option value="{{ sheet.id }}" {% if sheet_filter == sheet.id|string %}selected{% endif %}>
-                {{ sheet.display_name }}
+
+        <!-- Filtro por Tipo de Caso -->
+        <select name="sheet" class="form-select" style="width: 190px;" onchange="this.form.submit()">
+            <option value="">🏷️ Todas las tipologías</option>
+            {% for s in sheets %}
+            <option value="{{ s.id }}" {% if sheet_filter == (s.id|string) %}selected{% endif %}>
+                {{ s.display_name }}
             </option>
             {% endfor %}
         </select>
-        <select name="status" class="form-select" style="width: 180px;" onchange="this.form.submit()">
-            <option value="">Todos los estados</option>
+
+        <!-- Filtro por Estado -->
+        <select name="status" class="form-select" style="width: 170px;" onchange="this.form.submit()">
+            <option value="">📊 Todos los estados</option>
             <option value="nuevo" {% if status_filter == 'nuevo' %}selected{% endif %}>Nuevo</option>
             <option value="en_proceso" {% if status_filter == 'en_proceso' %}selected{% endif %}>En Proceso</option>
             <option value="reverificar" {% if status_filter == 'reverificar' %}selected{% endif %}>⚠️ Re-verificar</option>
@@ -98,26 +151,58 @@
             <option value="rechazado" {% if status_filter == 'rechazado' %}selected{% endif %}>Rechazado</option>
             <option value="cerrado" {% if status_filter == 'cerrado' %}selected{% endif %}>Cerrado</option>
         </select>
+
+        <!-- Filtro por Quién Gestiona (Asesor Asignado) -->
+        <select name="agente" class="form-select" style="width: 190px;" onchange="this.form.submit()">
+            <option value="">👤 Quién gestiona (Todos)</option>
+            <option value="unassigned" {% if assigned_filter in ('unassigned', 'sin_asignar') %}selected{% endif %}>⚠️ Sin Asignar</option>
+            {% for ag in agents %}
+            <option value="{{ ag.id }}" {% if assigned_filter == (ag.id|string) %}selected{% endif %}>
+                {{ ag.display_name }} ({{ ag.role_label }})
+            </option>
+            {% endfor %}
+        </select>
+
         <button type="submit" class="btn btn-secondary btn-sm">Filtrar</button>
-        {% if search_query or sheet_filter or status_filter %}
+        {% if search_query or sheet_filter or status_filter or assigned_filter %}
         <a href="{{ url_for('dashboard.index', view=view_filter) }}" class="btn btn-secondary btn-sm" title="Limpiar filtros" style="color: var(--text-muted);">✕ Limpiar</a>
         {% endif %}
     </div>
 </form>
 
+{% set has_tracking_in_page = false %}
+{% for c in cases %}
+    {% if c.is_seguimiento_retiros or c.estado_retiro or c.estado_reembolso %}
+        {% set has_tracking_in_page = true %}
+    {% endif %}
+{% endfor %}
+
 <!-- Tabla de Casos -->
 <div class="card">
     <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
         <h2 class="card-title">
-            {% if view_filter == 'asignados' %}
-            Mis Casos Asignados ({{ cases|length }})
+            {% if view_filter in ('asignados', 'mis_casos') %}
+            Mis Casos Asignados
+            {% elif view_filter == 'vencidos' %}
+            Casos con SLA Vencido / En Riesgo
+            {% elif view_filter == 'sin_asignar' %}
+            Cola de Casos Sin Asignar
+            {% elif view_filter == 'reverificar' %}
+            Casos en Re-verificación
             {% else %}
-            Todos los Casos ({{ cases|length }})
+            Todos los Casos
             {% endif %}
+            <span style="font-size: 0.82rem; font-weight: normal; color: var(--text-muted);">
+                (Página {{ pagination.page }} de {{ pagination.pages or 1 }} — {{ pagination.total }} casos)
+            </span>
         </h2>
         <span style="font-size: 0.8rem; color: var(--text-muted);">
-            {% if view_filter == 'asignados' %}
+            {% if view_filter in ('asignados', 'mis_casos') %}
             Bandeja personal de gestión
+            {% elif view_filter == 'vencidos' %}
+            Compromisos vencidos de Back Office
+            {% elif view_filter == 'sin_asignar' %}
+            Casos disponibles para asignación
             {% else %}
             Bandeja operativa global
             {% endif %}
@@ -130,29 +215,41 @@
             <thead>
                 <tr>
                     <th>ID</th>
-                    <th>Tipo de Caso</th>
                     <th>N° Pedido</th>
-                    <th>Fecha</th>
+                    <th>Caso Wise</th>
+                    <th>Tipo de Caso</th>
                     <th>Tienda</th>
-                    <th>Agente Front</th>
                     <th>Estado</th>
+                    <th>SLA Operativo</th>
+                    <th>Prioridad</th>
+                    {% if has_tracking_in_page %}
                     <th>Retiro / Reembolso</th>
-                    <th>Asignado a</th>
+                    {% endif %}
+                    <th>Quién Gestiona</th>
                 </tr>
             </thead>
             <tbody>
                 {% for case in cases %}
                 <tr class="clickable-row" onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
                     <td>#{{ case.id }}</td>
+                    <td style="font-weight: 700; color: #60a5fa; font-family: monospace; font-size: 0.88rem;">
+                        {{ case.pedido_id or '—' }}
+                    </td>
                     <td>
-                        <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                        {% if case.wise_ticket_id %}
+                        <span class="badge" style="background: rgba(14, 165, 233, 0.15); color: #38bdf8; border: 1px solid rgba(14, 165, 233, 0.35); font-family: monospace; font-size: 0.78rem; font-weight: 600;">
+                            W-{{ case.wise_ticket_id }}
+                        </span>
+                        {% else %}
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="background-color: {{ case.typology_badge.bg }}; color: {{ case.typology_badge.color }};">
                             {{ case.typology_badge.label }}
                         </span>
                     </td>
-                    <td style="font-weight: 600; color: var(--text-primary)">{{ case.pedido_id or '—' }}</td>
-                    <td>{{ case.fecha or '—' }}</td>
                     <td>{{ case.tienda or '—' }}</td>
-                    <td>{{ case.agente_front or '—' }}</td>
                     <td>
                         <span class="badge badge-{{ case.status }}">{{ case.status_label }}</span>
                         {% if case.motivo_rechazo %}
@@ -160,7 +257,26 @@
                             🚫 {{ case.motivo_rechazo }}
                         </div>
                         {% endif %}
+                        {% if case.motivo_reverificacion %}
+                        <div style="font-size: 0.72rem; color: #fb923c; margin-top: 4px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ case.motivo_reverificacion }}">
+                            ⚠️ {{ case.motivo_reverificacion }}
+                        </div>
+                        {% endif %}
                     </td>
+                    <td>
+                        {% set sla = case.sla_info %}
+                        <span class="badge" style="background: {{ sla.bg }}; color: {{ sla.color }}; border: 1px solid {{ sla.color }}40; font-size: 0.74rem; font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;" title="Vencimiento SLA: {{ case.sla_deadline.strftime('%d/%m/%Y %H:%M') if case.sla_deadline else 'Estándar' }}">
+                            <span>{{ sla.icon }}</span>
+                            <span>{{ sla.text }}</span>
+                        </span>
+                    </td>
+                    <td>
+                        {% set prio = case.priority_badge %}
+                        <span class="badge" style="background: {{ prio.bg }}; color: {{ prio.color }}; border: 1px solid {{ prio.border }}; font-size: 0.72rem; font-weight: 600; white-space: nowrap;">
+                            <span>{{ prio.icon }}</span> {{ prio.label }}
+                        </span>
+                    </td>
+                    {% if has_tracking_in_page %}
                     <td>
                         {% if case.is_seguimiento_retiros or case.estado_retiro or case.estado_reembolso %}
                         <div style="display: flex; flex-direction: column; gap: 4px;">
@@ -175,16 +291,79 @@
                         <span style="color: var(--text-muted); font-size: 0.8rem;">—</span>
                         {% endif %}
                     </td>
-                    <td>{{ case.assigned_user.display_name if case.assigned_user else '—' }}</td>
+                    {% endif %}
+                    <td>
+                        {% if case.assigned_user %}
+                        <div class="flex items-center gap-2">
+                            <div class="user-avatar" style="width: 24px; height: 24px; font-size: 0.68rem; background: #3b82f6; flex-shrink: 0;">
+                                {{ case.assigned_user.display_name[0]|upper }}
+                            </div>
+                            <div style="font-size: 0.82rem;">
+                                {% if current_user.is_admin or current_user.is_supervisor %}
+                                <a href="{{ url_for('admin.perfil_asesor', user_id=case.assigned_user.id) }}"
+                                   onclick="event.stopPropagation();"
+                                   style="color: #93c5fd; text-decoration: none; font-weight: 600;"
+                                   title="Ver consola de asesor Wise CX de {{ case.assigned_user.display_name }}">
+                                    {{ case.assigned_user.display_name }} ↗
+                                </a>
+                                {% else %}
+                                <span style="color: #f8fafc; font-weight: 500;">{{ case.assigned_user.display_name }}</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% else %}
+                        <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.72rem;">
+                            ⚠️ Sin Asignar
+                        </span>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    <!-- Controles de Paginación -->
+    {% if pagination.pages > 1 %}
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-top: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 12px;">
+        <div style="font-size: 0.82rem; color: var(--text-muted);">
+            Mostrando registros del {{ (pagination.page - 1) * pagination.per_page + 1 }} al {{ [pagination.page * pagination.per_page, pagination.total]|min }} de {{ pagination.total }}
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center;">
+            {% if pagination.has_prev %}
+            <a href="{{ url_for('dashboard.index', page=pagination.prev_num, view=view_filter, status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
+               class="btn btn-secondary btn-sm">◀ Anterior</a>
+            {% else %}
+            <span class="btn btn-secondary btn-sm" style="opacity: 0.4; cursor: not-allowed;">◀ Anterior</span>
+            {% endif %}
+
+            {% for p in pagination.iter_pages(left_edge=2, left_current=2, right_current=2, right_edge=2) %}
+                {% if p %}
+                    {% if p == pagination.page %}
+                    <span class="btn btn-primary btn-sm" style="font-weight: 700; min-width: 32px; text-align: center;">{{ p }}</span>
+                    {% else %}
+                    <a href="{{ url_for('dashboard.index', page=p, view=view_filter, status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
+                       class="btn btn-secondary btn-sm" style="min-width: 32px; text-align: center;">{{ p }}</a>
+                    {% endif %}
+                {% else %}
+                    <span style="color: var(--text-muted); padding: 0 4px;">…</span>
+                {% endif %}
+            {% endfor %}
+
+            {% if pagination.has_next %}
+            <a href="{{ url_for('dashboard.index', page=pagination.next_num, view=view_filter, status=status_filter, sheet=sheet_filter, agente=assigned_filter, q=search_query) }}"
+               class="btn btn-secondary btn-sm">Siguiente ▶</a>
+            {% else %}
+            <span class="btn btn-secondary btn-sm" style="opacity: 0.4; cursor: not-allowed;">Siguiente ▶</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     {% else %}
     <div class="empty-state">
         <div class="empty-state-icon">📭</div>
-        <p class="empty-state-text">No hay casos que mostrar.</p>
+        <p class="empty-state-text">No hay casos que mostrar con los filtros seleccionados.</p>
     </div>
     {% endif %}
 </div>

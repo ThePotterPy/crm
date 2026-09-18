@@ -35,7 +35,29 @@
     </a>
 </div>
 
-<div class="card mt-4">
+<!-- Filtro por Tipología -->
+<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; margin-bottom: 8px; flex-wrap: wrap; gap: 12px;">
+    <form method="GET" action="{{ url_for('front.bandeja_front') }}" style="display: flex; align-items: center; gap: 10px;">
+        <input type="hidden" name="tab" value="{{ active_tab }}">
+        <label for="sheet" style="font-size: 0.84rem; color: var(--text-secondary); font-weight: 600;">🏷️ Filtrar por Tipología:</label>
+        <select name="sheet" id="sheet" class="form-select" style="width: 240px; padding: 6px 12px; font-size: 0.84rem;" onchange="this.form.submit()">
+            <option value="">Todas las tipologías</option>
+            {% for s in sheets %}
+            <option value="{{ s.id }}" {% if sheet_filter == s.id %}selected{% endif %}>
+                {{ s.display_name }}
+            </option>
+            {% endfor %}
+        </select>
+        {% if sheet_filter %}
+        <a href="{{ url_for('front.bandeja_front', tab=active_tab) }}" class="btn btn-secondary btn-sm" style="font-size: 0.78rem;">✕ Limpiar filtro</a>
+        {% endif %}
+    </form>
+    <div style="font-size: 0.82rem; color: var(--text-muted);">
+        Mostrando {{ cases|length }} caso(s)
+    </div>
+</div>
+
+<div class="card mt-2">
     {% if cases %}
     <div class="table-wrapper">
         <table>
@@ -61,7 +83,7 @@
                     onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
                     <td><strong>#{{ case.id }}</strong></td>
                     <td>
-                        <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                        <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="background-color: {{ case.typology_badge.bg }}; color: {{ case.typology_badge.color }};">
                             {{ case.typology_badge.label }}
                         </span>
                     </td>

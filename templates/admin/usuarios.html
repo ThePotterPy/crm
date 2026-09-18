@@ -6,11 +6,16 @@
 <div class="page-header flex justify-between items-center">
     <div>
         <h1 class="page-title">Usuarios</h1>
-        <p class="page-subtitle">Gestionar acceso al CRM</p>
+        <p class="page-subtitle">Gestionar acceso al CRM y asignación de tipologías</p>
     </div>
-    <button class="btn btn-primary" onclick="document.getElementById('modal-crear').classList.add('active')">
-        ＋ Nuevo Usuario
-    </button>
+    <div class="flex gap-2">
+        <a href="{{ url_for('admin.tipos_casos') }}" class="btn btn-secondary">
+            🏷️ Tipos de Casos
+        </a>
+        <button class="btn btn-primary" onclick="document.getElementById('modal-crear').classList.add('active')">
+            ＋ Nuevo Usuario
+        </button>
+    </div>
 </div>
 
 <div class="card">
@@ -29,14 +34,18 @@
             <tbody>
                 {% for user in users %}
                 <tr>
-                    <td style="font-weight: 600;">{{ user.username }}</td>
+                    <td style="font-weight: 600;">
+                        <a href="{{ url_for('admin.perfil_asesor', user_id=user.id) }}" style="color: var(--text-primary); text-decoration: none;" onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='var(--text-primary)'">
+                            {{ user.username }}
+                        </a>
+                    </td>
                     <td>
-                        <div class="flex items-center gap-3">
+                        <a href="{{ url_for('admin.perfil_asesor', user_id=user.id) }}" class="flex items-center gap-3" style="text-decoration: none; color: inherit;">
                             <div class="user-avatar" style="width: 30px; height: 30px; font-size: 0.75rem;">
                                 {{ user.display_name[0]|upper }}
                             </div>
-                            {{ user.display_name }}
-                        </div>
+                            <span style="font-weight: 500;" onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='inherit'">{{ user.display_name }}</span>
+                        </a>
                     </td>
                     <td>
                         <span class="badge" style="background: {{ user.role_badge_color }}22; color: {{ user.role_badge_color }}; border: 1px solid {{ user.role_badge_color }}44; font-weight: 600;">
@@ -46,7 +55,7 @@
                     <td>
                         <div class="flex flex-wrap gap-3" style="gap: 4px;">
                             {% for sheet in user.assigned_sheets.all() %}
-                            <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="font-size: 0.65rem; padding: 2px 8px;">
+                            <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="background-color: {{ sheet.badge_style.bg }}; color: {{ sheet.badge_style.color }}; font-size: 0.65rem; padding: 2px 8px;">
                                 {{ sheet.badge_style.label }}
                             </span>
                             {% endfor %}
@@ -62,6 +71,9 @@
                     </td>
                     <td>
                         <div class="flex gap-2" style="gap: 6px;">
+                            <a href="{{ url_for('admin.perfil_asesor', user_id=user.id) }}" class="btn btn-secondary btn-sm" title="Ver Bandeja del Asesor (Wise CX)">
+                                👁️ Bandeja
+                            </a>
                             <button class="btn btn-secondary btn-sm"
                                     onclick="openEditUserModal({{ user.id }}, '{{ user.username }}', '{{ user.display_name|replace("'", "\\'") }}', '{{ user.role }}', {{ 'true' if user.is_active_user else 'false' }}, {{ user.assigned_sheets.all() | map(attribute='id') | list | tojson }})"
                                     title="Editar usuario y tipologías asignadas">
@@ -119,7 +131,8 @@
             <div class="form-group" style="margin-top: 14px;">
                 <div class="flex justify-between items-center" style="margin-bottom: 6px;">
                     <label class="form-label" style="font-weight: 600; margin-bottom: 0;">🏷️ Tipos de Casos Asignados (Colas que atenderá)</label>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 items-center">
+                        <a href="{{ url_for('admin.tipos_casos') }}" target="_blank" style="font-size: 0.76rem; color: #60a5fa; text-decoration: none; margin-right: 8px;">⚙️ Modificar Tipologías ↗</a>
                         <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="selectAllSheets('create-sheets-container')">Todos</button>
                         <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="deselectAllSheets('create-sheets-container')">Ninguno</button>
                     </div>
@@ -128,7 +141,7 @@
                     {% for sheet in sheets %}
                     <label class="flex items-center gap-2" style="cursor: pointer; font-size: 0.85rem; color: #f8fafc; margin-bottom: 0; background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
                         <input type="checkbox" name="sheet_ids" value="{{ sheet.id }}" style="accent-color: var(--color-primary); width: 16px; height: 16px;" checked>
-                        <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="padding: 2px 8px; font-size: 0.75rem;">
+                        <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="background-color: {{ sheet.badge_style.bg }}; color: {{ sheet.badge_style.color }}; padding: 2px 8px; font-size: 0.75rem;">
                             {{ sheet.badge_style.label }}
                         </span>
                     </label>
@@ -184,7 +197,8 @@
             <div class="form-group" style="margin-top: 14px;">
                 <div class="flex justify-between items-center" style="margin-bottom: 6px;">
                     <label class="form-label" style="font-weight: 600; margin-bottom: 0;">🏷️ Tipos de Casos Asignados (Tipologías que atenderá)</label>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 items-center">
+                        <a href="{{ url_for('admin.tipos_casos') }}" target="_blank" style="font-size: 0.76rem; color: #60a5fa; text-decoration: none; margin-right: 8px;">⚙️ Modificar Tipologías ↗</a>
                         <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="selectAllSheets('edit-sheets-container')">Todos</button>
                         <button type="button" class="btn btn-secondary btn-sm" style="font-size: 0.72rem; padding: 2px 8px;" onclick="deselectAllSheets('edit-sheets-container')">Ninguno</button>
                     </div>
@@ -193,7 +207,7 @@
                     {% for sheet in sheets %}
                     <label class="flex items-center gap-2" style="cursor: pointer; font-size: 0.85rem; color: #f8fafc; margin-bottom: 0; background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05);">
                         <input type="checkbox" name="sheet_ids" value="{{ sheet.id }}" style="accent-color: var(--color-primary); width: 16px; height: 16px;">
-                        <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="padding: 2px 8px; font-size: 0.75rem;">
+                        <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="background-color: {{ sheet.badge_style.bg }}; color: {{ sheet.badge_style.color }}; padding: 2px 8px; font-size: 0.75rem;">
                             {{ sheet.badge_style.label }}
                         </span>
                     </label>

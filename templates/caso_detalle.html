@@ -9,7 +9,7 @@
         <div class="flex items-center gap-3">
             <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary btn-sm">← Volver</a>
             <span class="sf-record-type-label">CASO DE SERVICIO</span>
-            <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="font-size: 0.85rem; padding: 4px 14px;">
+            <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="background-color: {{ case.typology_badge.bg }}; color: {{ case.typology_badge.color }}; font-size: 0.85rem; padding: 4px 14px;">
                 {{ case.typology_badge.label }}
             </span>
         </div>
@@ -20,26 +20,72 @@
         </div>
     </div>
 
-    <div class="sf-record-header-main">
-        <div class="sf-record-title-area">
-            <div class="sf-record-icon">📁</div>
-            <div>
-                <h1 class="sf-record-title">Caso #{{ case.id }} — Pedido: {{ case.pedido_id or 'Sin N°' }}</h1>
-                <div class="sf-record-meta">
-                    <span>Creado: <strong>{{ case.created_at.strftime('%d/%m/%Y %H:%M') if case.created_at else '—' }}</strong></span>
-                    <span>Front: <strong>{{ case.agente_front or (case.creator.display_name if case.creator else '—') }}</strong></span>
-                    <span>Back Office: 
-                        <strong>{{ case.assigned_user.display_name if case.assigned_user else 'Sin asignar' }}</strong>
-                        {% if not case.assigned_to and (current_user.is_back_office or current_user.is_admin or current_user.is_supervisor) %}
-                        <form method="POST" action="{{ url_for('dashboard.tomar_caso', case_id=case.id) }}" style="display: inline-block; margin-left: 8px;">
-                            <button type="submit" class="btn btn-primary btn-sm" style="padding: 2px 10px; font-size: 0.72rem;">📥 Tomar Caso</button>
-                        </form>
+    <div class="sf-record-header-main" style="padding: 16px 20px;">
+        <div class="sf-record-title-area" style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%; flex-wrap: wrap; gap: 16px;">
+            <div style="display: flex; align-items: center; gap: 14px;">
+                <div class="sf-record-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8); width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; border-radius: 10px; font-size: 1.4rem;">📦</div>
+                <div>
+                    <div class="flex items-center gap-2" style="flex-wrap: wrap;">
+                        <h1 class="sf-record-title" style="margin: 0; font-size: 1.35rem; font-weight: 800;">
+                            Pedido: <span style="color: #60a5fa;">{{ case.pedido_id or 'Sin N°' }}</span>
+                        </h1>
+                        <span style="font-size: 0.85rem; color: var(--text-muted);">| Caso CRM #{{ case.id }}</span>
+                        {% if case.wise_ticket_id %}
+                        <span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4); font-size: 0.8rem; font-weight: 700; padding: 3px 10px;">
+                            🌐 Wise ID: {{ case.wise_ticket_id }}
+                        </span>
                         {% endif %}
-                        {% if current_user.is_admin or current_user.is_supervisor %}
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('modal-reasignar').classList.add('active')" style="padding: 2px 10px; font-size: 0.72rem; margin-left: 6px;">🔄 Reasignar</button>
-                        {% endif %}
+                    </div>
+                    <div class="sf-record-meta" style="margin-top: 6px; display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.82rem;">
+                        <span>Tienda: <strong style="color: #f8fafc;">{{ case.tienda or '—' }}</strong></span>
+                        <span>Creado: <strong>{{ case.created_at.strftime('%d/%m/%Y %H:%M') if case.created_at else '—' }}</strong></span>
+                        <span>Front: <strong>{{ case.agente_front or (case.creator.display_name if case.creator else '—') }}</strong></span>
+                        <span>Back Office: 
+                            <strong>{{ case.assigned_user.display_name if case.assigned_user else 'Sin asignar' }}</strong>
+                            {% if not case.assigned_to and (current_user.is_back_office or current_user.is_admin or current_user.is_supervisor) %}
+                            <form method="POST" action="{{ url_for('dashboard.tomar_caso', case_id=case.id) }}" style="display: inline-block; margin-left: 6px;">
+                                <button type="submit" class="btn btn-primary btn-sm" style="padding: 2px 8px; font-size: 0.7rem;">📥 Tomar Caso</button>
+                            </form>
+                            {% endif %}
+                            {% if current_user.is_admin or current_user.is_supervisor %}
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('modal-reasignar').classList.add('active')" style="padding: 2px 8px; font-size: 0.7rem; margin-left: 4px;">🔄 Reasignar</button>
+                            {% endif %}
+                        </span>
+                        {% if case.codigo_sap %}<span>SAP: <strong>{{ case.codigo_sap }}</strong></span>{% endif %}
+                        {% if case.tracking %}<span>Tracking: <strong>{{ case.tracking }}</strong></span>{% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Badges de SLA y Prioridad (Salesforce / Wise Standard) -->
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+                <!-- SLA Countdown -->
+                {% set sla = case.sla_info %}
+                <div style="background: {{ sla.bg }}; border: 1px solid {{ sla.color }}55; color: {{ sla.color }}; border-radius: 8px; padding: 6px 14px; text-align: right; min-width: 130px;">
+                    <div style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">SLA Resolución</div>
+                    <div style="font-size: 0.85rem; font-weight: 800; display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 2px;">
+                        <span>{{ sla.icon }}</span>
+                        <span>{{ sla.text }}</span>
+                    </div>
+                </div>
+
+                <!-- Selector de Prioridad Operativa -->
+                {% set p = case.priority_badge %}
+                <div style="position: relative;">
+                    {% if current_user.is_back_office or current_user.is_admin or current_user.is_supervisor %}
+                    <form method="POST" action="{{ url_for('dashboard.cambiar_prioridad', case_id=case.id) }}">
+                        <select name="prioridad" onchange="this.form.submit()" style="background: {{ p.bg }}; color: {{ p.color }}; border: 1px solid {{ p.border }}; border-radius: 8px; padding: 7px 12px; font-size: 0.82rem; font-weight: 700; cursor: pointer; outline: none;" title="Cambiar prioridad operativa">
+                            <option value="urgente" {% if case.prioridad == 'urgente' %}selected{% endif %}>🔴 Urgente</option>
+                            <option value="alta" {% if case.prioridad == 'alta' %}selected{% endif %}>🟠 Alta</option>
+                            <option value="media" {% if case.prioridad == 'media' or not case.prioridad %}selected{% endif %}>🔵 Media</option>
+                            <option value="baja" {% if case.prioridad == 'baja' %}selected{% endif %}>⚪ Baja</option>
+                        </select>
+                    </form>
+                    {% else %}
+                    <span class="badge" style="background: {{ p.bg }}; color: {{ p.color }}; border: 1px solid {{ p.border }}; font-size: 0.82rem; font-weight: 700; padding: 7px 12px;">
+                        {{ p.icon }} {{ p.label }}
                     </span>
-                    {% if case.dni_cuit %}<span>DNI: <strong>{{ case.dni_cuit }}</strong></span>{% endif %}
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -130,13 +176,86 @@
 </div>
 {% endif %}
 
-<div class="detail-grid" style="grid-template-columns: 1.2fr 0.8fr; gap: 24px; margin-top: 20px;">
-    <!-- ── COLUMNA IZQUIERDA: FRONT DATA & BACK OFFICE FORM ── -->
+<div class="detail-grid" style="grid-template-columns: 1.25fr 0.75fr; gap: 24px; margin-top: 20px;">
+    <!-- ── COLUMNA IZQUIERDA: ORDER 360°, GESTIÓN BACK OFFICE & NOTAS INTERNAS ── -->
     <div>
+        <!-- Historial de Casos del Mismo Pedido (Trazabilidad Order 360°) -->
+        <div class="card mb-4" style="background: rgba(30, 41, 59, 0.45); border: 1px solid var(--border-subtle);">
+            <div class="card-header flex justify-between items-center" style="padding-bottom: 8px;">
+                <div class="flex items-center gap-2">
+                    <span style="font-size: 1.15rem;">📦</span>
+                    <div>
+                        <h3 style="font-size: 0.95rem; font-weight: 700; margin: 0; color: #f8fafc;">
+                            Historial del Pedido: <span style="color: #60a5fa;">{{ case.pedido_id or 'Sin N°' }}</span>
+                        </h3>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">Trazabilidad de todos los tickets asociados a esta orden</span>
+                    </div>
+                </div>
+                <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); font-size: 0.75rem;">
+                    {{ related_order_cases|length + 1 }} caso(s) en total
+                </span>
+            </div>
+
+            {% if related_order_cases %}
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+                {% for rel in related_order_cases %}
+                <a href="{{ url_for('dashboard.case_detail', case_id=rel.id) }}"
+                   style="display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; text-decoration: none; color: inherit; transition: all 0.15s;"
+                   onmouseover="this.style.background='rgba(59,130,246,0.12)'; this.style.borderColor='rgba(59,130,246,0.3)'"
+                   onmouseout="this.style.background='rgba(255,255,255,0.03)'; this.style.borderColor='rgba(255,255,255,0.06)'">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-weight: 800; color: #60a5fa; font-size: 0.85rem;">#{{ rel.id }}</span>
+                        <span class="badge-tipologia {{ rel.typology_badge.css_class }}" style="background-color: {{ rel.typology_badge.bg }}; color: {{ rel.typology_badge.color }}; font-size: 0.68rem; padding: 2px 8px;">
+                            {{ rel.typology_badge.label }}
+                        </span>
+                        {% if rel.wise_ticket_id %}
+                        <span style="font-size: 0.74rem; color: #cbd5e1; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">
+                            Wise: {{ rel.wise_ticket_id }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span class="badge badge-{{ rel.status }}" style="font-size: 0.72rem; padding: 2px 8px;">{{ rel.status_label }}</span>
+                        <span style="font-size: 0.74rem; color: var(--text-muted);">{{ rel.created_at.strftime('%d/%m/%Y') if rel.created_at else '—' }} ↗</span>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div style="padding: 10px 0 4px; font-size: 0.82rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                <span>✓</span>
+                <span>Este es el único ticket registrado para el número de pedido <strong>{{ case.pedido_id or 'Sin N°' }}</strong>.</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Nota Interna Rápida (Salesforce Chatter / Wise Notes) -->
+        <div class="card mb-4" style="background: rgba(30, 41, 59, 0.4); border: 1px solid rgba(14, 165, 233, 0.25);">
+            <div class="card-header flex justify-between items-center" style="padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+                <div class="flex items-center gap-2">
+                    <span style="font-size: 1.1rem;">💬</span>
+                    <h3 class="card-title" style="font-size: 0.95rem; margin: 0; color: #38bdf8;">Nota Interna de Trabajo</h3>
+                </div>
+                <span style="font-size: 0.72rem; color: var(--text-muted);">Visible para Back Office, Front y Supervisores</span>
+            </div>
+            <form method="POST" action="{{ url_for('dashboard.agregar_nota_interna', case_id=case.id) }}" style="padding-top: 12px;">
+                <div class="form-group mb-2">
+                    <textarea name="nota_texto" class="form-textarea" rows="2" required
+                              placeholder="Escribí una nota interna operativa (ej. contacto con chofer, chequeo con depósito, validación de stock)..." style="font-size: 0.88rem; background: rgba(0,0,0,0.25);"></textarea>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span style="font-size: 0.74rem; color: var(--text-muted);">Quedará registrada en la línea de tiempo con tu usuario.</span>
+                    <button type="submit" class="btn btn-primary btn-sm" style="font-size: 0.78rem; padding: 4px 14px; background: #0ea5e9; border-color: #0ea5e9;">
+                        💬 Publicar Nota
+                    </button>
+                </div>
+            </form>
+        </div>
+
         <!-- Datos de Entrada (Front) -->
         <div class="card mb-4">
             <div class="card-header flex justify-between items-center">
-                <h2 class="card-title">📥 Datos del Reclamo (Front Office)</h2>
+                <h2 class="card-title">📥 Datos del Caso (Solicitud Inicial)</h2>
                 <span style="font-size: 0.75rem; color: var(--text-muted);">Cargado por: {{ case.agente_front or '—' }}</span>
             </div>
 
@@ -230,13 +349,27 @@
         <div class="card" style="border: 1px solid var(--accent-primary-glow);">
             <div class="card-header flex justify-between items-center">
                 <h2 class="card-title">📝 Gestión Back Office</h2>
-                <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="background-color: {{ case.typology_badge.bg }}; color: {{ case.typology_badge.color }};">
                     {{ case.typology_badge.label }}
                 </span>
             </div>
 
             <form method="POST" action="{{ url_for('dashboard.manage_case', case_id=case.id) }}" id="manage-form">
                 <input type="hidden" name="action" id="manage-action" value="guardar">
+
+                <!-- Campo Dedicado: ID Caso Plataforma Wise CX -->
+                <div style="margin-bottom: 16px; padding: 12px 14px; background: rgba(99, 102, 241, 0.08); border-radius: 8px; border: 1px solid rgba(99, 102, 241, 0.25);">
+                    <label class="form-label" for="caso_wise" style="color: #a5b4fc; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                        <span>🌐</span>
+                        <span>ID de Caso en Plataforma Wise CX</span>
+                    </label>
+                    <input type="text" name="caso_wise" id="caso_wise" class="form-input"
+                           placeholder="Ej: WISE-10492 o número de ticket Wise"
+                           value="{{ case.wise_ticket_id }}" style="background: rgba(0,0,0,0.3); font-weight: 600;">
+                    <small style="color: var(--text-muted); font-size: 0.74rem; display: block; margin-top: 4px;">
+                        Número identificador del ticket en la consola de Wise para sincronización y búsqueda rápida.
+                    </small>
+                </div>
 
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px;">
                     {% for col in output_columns %}
@@ -413,13 +546,17 @@
                 {% for ev in events %}
                 <div class="sf-timeline-item">
                     <div class="sf-timeline-marker marker-{{ ev.event_type }}"></div>
-                    <div class="sf-timeline-content">
+                    <div class="sf-timeline-content" {% if ev.event_type == 'nota_interna' %}style="background: rgba(14, 165, 233, 0.08); border-left: 3px solid #0ea5e9; padding: 12px 14px;"{% endif %}>
                         <div class="flex justify-between items-center">
-                            <span class="sf-timeline-title">{{ ev.title }}</span>
+                            <span class="sf-timeline-title" {% if ev.event_type == 'nota_interna' %}style="color: #38bdf8; font-weight: 700;"{% endif %}>
+                                {% if ev.event_type == 'nota_interna' %}💬 {% endif %}{{ ev.title }}
+                            </span>
                             <span class="sf-timeline-time">{{ ev.created_at.strftime('%d/%m %H:%M') }}</span>
                         </div>
                         {% if ev.description %}
-                        <div class="sf-timeline-desc">{{ ev.description }}</div>
+                        <div class="sf-timeline-desc" {% if ev.event_type == 'nota_interna' %}style="color: #f1f5f9; font-size: 0.88rem; margin-top: 6px; line-height: 1.45;"{% endif %}>
+                            {{ ev.description }}
+                        </div>
                         {% endif %}
                         <div class="sf-timeline-user">
                             {% if ev.user %}👤 {{ ev.user.display_name }}{% else %}⚙️ Sistema{% endif %}

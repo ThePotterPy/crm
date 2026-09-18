@@ -1,0 +1,320 @@
+{% extends "base.html" %}
+
+{% block title %}Consola de Asesor — {{ advisor.display_name }} (Wise CX) — CRM BGH{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb y Cabecera de Supervisión Wise -->
+<div class="sf-page-header" style="margin-bottom: 20px;">
+    <div class="sf-breadcrumb">
+        <a href="{{ url_for('dashboard.index') }}">Inicio</a> /
+        <a href="{{ url_for('admin.usuarios') }}">Usuarios y Roles</a> /
+        <span>Consola Wise Asesor</span>
+    </div>
+    <div class="flex justify-between items-center" style="margin-top: 6px; flex-wrap: wrap; gap: 12px;">
+        <div class="flex items-center gap-3">
+            <a href="{{ url_for('admin.usuarios') }}" class="btn btn-secondary btn-sm">← Volver a Usuarios</a>
+            <h1 class="sf-page-title" style="margin: 0; font-size: 1.4rem;">
+                Consola de Supervisión — Asesor Wise
+            </h1>
+        </div>
+        <div class="flex gap-2">
+            <a href="{{ url_for('dashboard.index', agente=advisor.id) }}" class="btn btn-secondary btn-sm" target="_blank">
+                🌐 Ver en Consola Global ↗
+            </a>
+            <a href="{{ url_for('admin.asignaciones') }}" class="btn btn-secondary btn-sm">
+                🔗 Gestionar Sub-roles
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Ficha de Perfil del Asesor (Estilo Wise CX) -->
+<div class="card" style="margin-bottom: 24px; padding: 22px; background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.95) 100%); border: 1px solid var(--border-subtle); border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px;">
+        <!-- Identidad del Asesor -->
+        <div class="flex items-center gap-4">
+            <div class="user-avatar" style="width: 58px; height: 58px; font-size: 1.6rem; font-weight: 700; background: #3b82f6; box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);">
+                {{ advisor.display_name[0]|upper }}
+            </div>
+            <div>
+                <div class="flex items-center gap-3">
+                    <h2 style="font-size: 1.35rem; font-weight: 700; color: #f8fafc; margin: 0;">{{ advisor.display_name }}</h2>
+                    <span class="badge" style="background: {{ load_status.bg }}; color: {{ load_status.color }}; border: 1px solid {{ load_status.border }}; font-weight: 700; font-size: 0.76rem; padding: 3px 10px;">
+                        ● {{ load_status.label }} ({{ active_cases }} activos)
+                    </span>
+                </div>
+                <div class="flex items-center gap-3" style="margin-top: 4px; font-size: 0.84rem; color: var(--text-muted);">
+                    <span>@{{ advisor.username }}</span>
+                    <span>•</span>
+                    <span class="badge" style="background: {{ advisor.role_badge_color }}22; color: {{ advisor.role_badge_color }}; border: 1px solid {{ advisor.role_badge_color }}44; font-size: 0.72rem; padding: 2px 8px;">
+                        {{ advisor.role_label }}
+                    </span>
+                    <span>•</span>
+                    <span class="badge {% if advisor.is_active_user %}badge-resuelto{% else %}badge-cerrado{% endif %}" style="font-size: 0.7rem;">
+                        {{ 'Habilitado en CRM' if advisor.is_active_user else 'Inactivo / Bloqueado' }}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Colas / Tipologías asignadas -->
+        <div style="max-width: 480px;">
+            <div style="font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 6px;">
+                🏷️ Colas y Tipologías Asignadas:
+            </div>
+            <div class="flex flex-wrap gap-2">
+                {% for sheet in advisor.assigned_sheets.all() %}
+                <span class="badge-tipologia {{ sheet.badge_style.css_class }}" style="background-color: {{ sheet.badge_style.bg }}; color: {{ sheet.badge_style.color }}; font-size: 0.72rem; padding: 3px 10px;">
+                    {{ sheet.badge_style.label }}
+                </span>
+                {% endfor %}
+                {% if advisor.assigned_sheets.count() == 0 %}
+                <span style="font-size: 0.8rem; color: var(--text-muted);">Sin tipologías asignadas actualmente.</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- KPIs en Vivo del Asesor -->
+<div class="kpi-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 24px;">
+    <div class="kpi-card" style="--kpi-color: #38bdf8;">
+        <div class="kpi-label">Activos en Bandeja</div>
+        <div class="kpi-value">{{ active_cases }}</div>
+        <div class="kpi-icon">📥</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-success);">
+        <div class="kpi-label">Casos Resueltos</div>
+        <div class="kpi-value">{{ resolved_cases }}</div>
+        <div class="kpi-icon">✅</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: var(--accent-warning);">
+        <div class="kpi-label">Devueltos / Re-verificar</div>
+        <div class="kpi-value">{{ returned_cases }}</div>
+        <div class="kpi-icon">⚠️</div>
+    </div>
+    <div class="kpi-card" style="--kpi-color: #a855f7;">
+        <div class="kpi-label">Calidad TYQ Promedio</div>
+        <div class="kpi-value">
+            {% if quality_avg is not none %}
+            {{ quality_avg }}<span style="font-size: 1rem; color: var(--text-muted);">/100</span>
+            {% else %}
+            —
+            {% endif %}
+        </div>
+        <div class="kpi-icon">⭐</div>
+    </div>
+</div>
+
+<!-- Bandeja en Tiempo Real del Asesor (Consola Wise) -->
+<div class="card">
+    <div class="card-header flex justify-between items-center" style="padding-bottom: 14px;">
+        <div>
+            <h2 class="card-title" style="margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                <span>📋 Bandeja en Vivo de {{ advisor.display_name }}</span>
+                <span style="font-size: 0.78rem; font-weight: normal; color: var(--text-muted);">
+                    ({{ pagination.total }} casos totales asignados)
+                </span>
+            </h2>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 2px 0 0 0;">
+                Supervisá los tickets que este agente está gestionando, revisá su estado y reasigná casos según sea necesario.
+            </p>
+        </div>
+    </div>
+
+    <!-- Filtros internos de la bandeja del asesor -->
+    <form method="GET" action="{{ url_for('admin.perfil_asesor', user_id=advisor.id) }}" style="padding: 12px 16px; background: rgba(0,0,0,0.15); border-bottom: 1px solid var(--border-subtle);">
+        <div class="flex gap-3 items-center flex-wrap">
+            <div class="search-input-wrapper" style="flex: 1; min-width: 200px;">
+                <input type="text" name="q" class="form-input search-input"
+                       placeholder="Buscar en esta bandeja por pedido, cliente, DNI, tracking..."
+                       value="{{ search_query }}">
+            </div>
+
+            <select name="status" class="form-select" style="width: 170px;" onchange="this.form.submit()">
+                <option value="">Todos los estados</option>
+                <option value="nuevo" {% if status_filter == 'nuevo' %}selected{% endif %}>Nuevo</option>
+                <option value="en_proceso" {% if status_filter == 'en_proceso' %}selected{% endif %}>En Proceso</option>
+                <option value="reverificar" {% if status_filter == 'reverificar' %}selected{% endif %}>⚠️ Re-verificar</option>
+                <option value="reenviado" {% if status_filter == 'reenviado' %}selected{% endif %}>🔄 Re-enviado</option>
+                <option value="resuelto" {% if status_filter == 'resuelto' %}selected{% endif %}>Resuelto</option>
+                <option value="rechazado" {% if status_filter == 'rechazado' %}selected{% endif %}>Rechazado</option>
+                <option value="cerrado" {% if status_filter == 'cerrado' %}selected{% endif %}>Cerrado</option>
+            </select>
+
+            <select name="sheet" class="form-select" style="width: 190px;" onchange="this.form.submit()">
+                <option value="">Todas las tipologías</option>
+                {% for s in sheets %}
+                <option value="{{ s.id }}" {% if sheet_filter == (s.id|string) %}selected{% endif %}>
+                    {{ s.display_name }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <button type="submit" class="btn btn-secondary btn-sm">Filtrar</button>
+            {% if search_query or status_filter or sheet_filter %}
+            <a href="{{ url_for('admin.perfil_asesor', user_id=advisor.id) }}" class="btn btn-secondary btn-sm" title="Limpiar filtros" style="color: var(--text-muted);">✕ Limpiar</a>
+            {% endif %}
+        </div>
+    </form>
+
+    {% if cases %}
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 80px;">ID Caso</th>
+                    <th>Tipología</th>
+                    <th>N° Pedido</th>
+                    <th>Cliente / DNI</th>
+                    <th>Estado</th>
+                    <th>Fecha Ingreso</th>
+                    <th style="text-align: right;">Acciones de Supervisor</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in cases %}
+                <tr>
+                    <td>
+                        <strong style="color: #60a5fa;">#{{ c.id }}</strong>
+                    </td>
+                    <td>
+                        <span class="badge-tipologia {{ c.typology_badge.css_class }}" style="background-color: {{ c.typology_badge.bg }}; color: {{ c.typology_badge.color }};">
+                            {{ c.typology_badge.label }}
+                        </span>
+                    </td>
+                    <td style="font-weight: 600; color: #f8fafc;">
+                        {{ c.pedido_id or '—' }}
+                    </td>
+                    <td>
+                        <div style="font-size: 0.85rem; color: #f1f5f9;">{{ c.nombre_cliente or '—' }}</div>
+                        {% if c.dni_cuit %}
+                        <div style="font-size: 0.74rem; color: var(--text-muted);">DNI: {{ c.dni_cuit }}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge badge-{{ c.status }}">{{ c.status_label }}</span>
+                        {% if c.quality_score is not none %}
+                        <span style="font-size: 0.7rem; color: #a855f7; margin-left: 4px;" title="Puntaje TYQ">
+                            ★ {{ c.quality_score }}/100
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        {{ c.created_at.strftime('%d/%m/%Y %H:%M') if c.created_at else '—' }}
+                    </td>
+                    <td style="text-align: right;">
+                        <div class="flex gap-2" style="justify-content: flex-end;">
+                            <a href="{{ url_for('dashboard.case_detail', case_id=c.id) }}"
+                               class="btn btn-secondary btn-sm"
+                               title="Abrir y gestionar caso">
+                                👁️ Ver Caso
+                            </a>
+                            <button type="button"
+                                    class="btn btn-secondary btn-sm"
+                                    onclick="openReassignModal({{ c.id }}, '{{ c.pedido_id|default('', true)|replace("'", "\\'") }}', '{{ c.typology_badge.label|replace("'", "\\'") }}')"
+                                    title="Reasignar caso a otro asesor">
+                                🔄 Reasignar
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Paginación de la bandeja -->
+    {% if pagination.pages > 1 %}
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-top: 1px solid var(--border-subtle); flex-wrap: wrap; gap: 10px;">
+        <div style="font-size: 0.82rem; color: var(--text-muted);">
+            Registros del {{ (pagination.page - 1) * pagination.per_page + 1 }} al {{ [pagination.page * pagination.per_page, pagination.total]|min }} de {{ pagination.total }}
+        </div>
+        <div style="display: flex; gap: 6px;">
+            {% if pagination.has_prev %}
+            <a href="{{ url_for('admin.perfil_asesor', user_id=advisor.id, page=pagination.prev_num, status=status_filter, sheet=sheet_filter, q=search_query) }}"
+               class="btn btn-secondary btn-sm">◀ Anterior</a>
+            {% endif %}
+            {% for p in pagination.iter_pages(left_edge=1, right_edge=1, left_current=2, right_current=2) %}
+                {% if p %}
+                    {% if p == pagination.page %}
+                    <span class="btn btn-primary btn-sm" style="font-weight: 700; min-width: 30px; text-align: center;">{{ p }}</span>
+                    {% else %}
+                    <a href="{{ url_for('admin.perfil_asesor', user_id=advisor.id, page=p, status=status_filter, sheet=sheet_filter, q=search_query) }}"
+                       class="btn btn-secondary btn-sm" style="min-width: 30px; text-align: center;">{{ p }}</a>
+                    {% endif %}
+                {% else %}
+                    <span style="color: var(--text-muted); padding: 0 4px;">…</span>
+                {% endif %}
+            {% endfor %}
+            {% if pagination.has_next %}
+            <a href="{{ url_for('admin.perfil_asesor', user_id=advisor.id, page=pagination.next_num, status=status_filter, sheet=sheet_filter, q=search_query) }}"
+               class="btn btn-secondary btn-sm">Siguiente ▶</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="empty-state" style="padding: 40px 20px;">
+        <div class="empty-state-icon">📭</div>
+        <p class="empty-state-text" style="color: #cbd5e1; font-weight: 500;">
+            No hay casos en la bandeja de este asesor con los filtros seleccionados.
+        </p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modal: Reasignar Caso (Supervisor Wise) -->
+<div class="modal-overlay" id="modal-reasignar">
+    <div class="modal" style="max-width: 520px;">
+        <h2 class="modal-title" style="color: #60a5fa;">🔄 Reasignar Caso a Otro Asesor</h2>
+        <form method="POST" id="form-reasignar" action="">
+            <div style="margin-bottom: 16px; color: #cbd5e1; font-size: 0.88rem; line-height: 1.5;">
+                Estás transfiriendo el caso <strong id="reassign-case-title" style="color: #f8fafc;"></strong>
+                desde la bandeja de <strong style="color: #93c5fd;">{{ advisor.display_name }}</strong>.
+            </div>
+
+            <div class="form-group">
+                <label class="form-label" style="font-weight: 600;">Seleccioná el Asesor de Destino *</label>
+                <select name="target_agent_id" id="target-agent-select" class="form-select" required style="background: #1e293b; color: #ffffff;">
+                    <option value="">— Elegir asesor destinatario —</option>
+                    {% for agent in other_agents %}
+                    <option value="{{ agent.id }}">
+                        {{ agent.display_name }} (@{{ agent.username }}) — {{ agent.role_label }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small style="color: var(--text-muted); font-size: 0.76rem; display: block; margin-top: 6px;">
+                    El caso pasará inmediatamente a la bandeja del nuevo asesor y quedará registrado en la línea de tiempo.
+                </small>
+            </div>
+
+            <div class="flex justify-between items-center" style="margin-top: 24px;">
+                <button type="button" class="btn btn-secondary" onclick="closeReassignModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">🚀 Transferir Caso</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openReassignModal(caseId, pedidoId, typology) {
+    const form = document.getElementById('form-reasignar');
+    form.action = `/admin/asesores/{{ advisor.id }}/reasignar-caso/${caseId}`;
+
+    document.getElementById('reassign-case-title').innerText = `#${caseId} (${typology}${pedidoId ? ' - ' + pedidoId : ''})`;
+    document.getElementById('modal-reasignar').classList.add('active');
+}
+
+function closeReassignModal() {
+    document.getElementById('modal-reasignar').classList.remove('active');
+}
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+    overlay.addEventListener('click', e => {
+        if (e.target === overlay) overlay.classList.remove('active');
+    });
+});
+</script>
+{% endblock %}

@@ -38,7 +38,7 @@
                 <tr class="clickable-row" onclick="window.location='{{ url_for('dashboard.case_detail', case_id=case.id) }}'">
                     <td><strong style="color: var(--accent-primary-hover);">#{{ case.id }}</strong></td>
                     <td>
-                        <span class="badge-tipologia {{ case.typology_badge.css_class }}">
+                        <span class="badge-tipologia {{ case.typology_badge.css_class }}" style="background-color: {{ case.typology_badge.bg }}; color: {{ case.typology_badge.color }};">
                             {{ case.typology_badge.label }}
                         </span>
                     </td>

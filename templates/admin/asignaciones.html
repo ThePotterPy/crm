@@ -3,28 +3,42 @@
 {% block title %}Asignaciones — CRM BGH{% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <h1 class="page-title">Asignaciones de Colas (Sub-roles Back Office)</h1>
-    <p class="page-subtitle">
-        Configurá qué tipos de casos atiende cada agente de Back Office. Cuando se registre un caso de esa tipología, el sistema se lo asignará automáticamente al agente Back con menor carga activa de esa cola.
-    </p>
+<div class="page-header flex justify-between items-center">
+    <div>
+        <h1 class="page-title">Asignaciones de Colas (Sub-roles Back Office)</h1>
+        <p class="page-subtitle">
+            Configurá qué tipos de casos atiende cada agente de Back Office. Cuando se registre un caso de esa tipología, el sistema se lo asignará automáticamente al agente Back con menor carga activa de esa cola.
+        </p>
+    </div>
+    <a href="{{ url_for('admin.tipos_casos') }}" class="btn btn-secondary">
+        🏷️ Gestionar Tipos de Casos
+    </a>
 </div>
 
 <form method="POST" action="{{ url_for('admin.guardar_asignaciones') }}">
     <div class="assignments-grid">
         {% for user in users %}
         <div class="assignment-card">
-            <div class="assignment-user">
-                <div class="user-avatar">{{ user.display_name[0]|upper }}</div>
-                <div>
-                    <div class="user-name" style="font-size: 1rem;">{{ user.display_name }}</div>
-                    <div class="user-role" style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
-                        <span>@{{ user.username }}</span>
-                        <span class="badge" style="background: {{ user.role_badge_color }}22; color: {{ user.role_badge_color }}; border: 1px solid {{ user.role_badge_color }}44; font-size: 0.68rem; padding: 2px 6px;">
-                            {{ user.role_label }}
-                        </span>
+            <div class="assignment-user" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div class="user-avatar">{{ user.display_name[0]|upper }}</div>
+                    <div>
+                        <div class="user-name" style="font-size: 1rem;">
+                            <a href="{{ url_for('admin.perfil_asesor', user_id=user.id) }}" style="color: inherit; text-decoration: none;" onmouseover="this.style.color='#60a5fa'" onmouseout="this.style.color='inherit'">
+                                {{ user.display_name }}
+                            </a>
+                        </div>
+                        <div class="user-role" style="display: flex; align-items: center; gap: 6px; margin-top: 2px;">
+                            <span>@{{ user.username }}</span>
+                            <span class="badge" style="background: {{ user.role_badge_color }}22; color: {{ user.role_badge_color }}; border: 1px solid {{ user.role_badge_color }}44; font-size: 0.68rem; padding: 2px 6px;">
+                                {{ user.role_label }}
+                            </span>
+                        </div>
                     </div>
                 </div>
+                <a href="{{ url_for('admin.perfil_asesor', user_id=user.id) }}" class="btn btn-secondary btn-sm" style="font-size: 0.75rem; padding: 4px 8px; text-decoration: none;" title="Ver Bandeja en Vivo (Wise CX)">
+                    👁️ Ver Bandeja
+                </a>
             </div>
 
             <div class="assignment-sheets">

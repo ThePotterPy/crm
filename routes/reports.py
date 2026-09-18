@@ -75,7 +75,10 @@ def index():
 
     query = build_filtered_query(request.args)
     total_count = query.count()
-    cases_preview = query.order_by(Case.created_at.desc()).limit(30).all()
+    cases_preview = query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+    ).order_by(Case.created_at.desc()).limit(30).all()
 
     return render_template(
         "reports/index.html",
@@ -97,7 +100,11 @@ def export_excel():
         return redirect(url_for("dashboard.index"))
 
     query = build_filtered_query(request.args)
-    cases = query.order_by(Case.created_at.desc()).all()
+    cases = query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+        db.joinedload(Case.creator),
+    ).order_by(Case.created_at.desc()).all()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -213,7 +220,11 @@ def export_csv():
         return redirect(url_for("dashboard.index"))
 
     query = build_filtered_query(request.args)
-    cases = query.order_by(Case.created_at.desc()).all()
+    cases = query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+        db.joinedload(Case.creator),
+    ).order_by(Case.created_at.desc()).all()
 
     output = io.StringIO()
     # UTF-8 BOM

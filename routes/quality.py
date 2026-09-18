@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_required, current_user
+from sqlalchemy import func
 from models import db, Case, SheetConfig, User, CaseEvent, log_case_event
 
 quality_bp = Blueprint("quality", __name__)
@@ -15,12 +16,14 @@ def dashboard_calidad():
         flash("No tenés permisos para acceder al módulo de Calidad TYQ.", "error")
         return redirect(url_for("dashboard.index"))
 
-    # Casos auditados
-    audited_cases = Case.query.filter(Case.quality_score.isnot(None)).order_by(Case.audited_at.desc()).all()
-    total_audited = len(audited_cases)
+    # Métricas agregadas directamente en SQL
+    audit_stats = db.session.query(
+        func.count(Case.id).label("total"),
+        func.avg(Case.quality_score).label("avg_score")
+    ).filter(Case.quality_score.isnot(None)).first()
 
-    # Promedio global
-    avg_score = round(sum(c.quality_score for c in audited_cases) / total_audited) if total_audited > 0 else 0
+    total_audited = (audit_stats.total if audit_stats else 0) or 0
+    avg_score = round(audit_stats.avg_score) if (audit_stats and audit_stats.avg_score is not None) else 0
 
     # Casos resueltos pendientes de auditar
     pending_audit_count = Case.query.filter(
@@ -28,21 +31,36 @@ def dashboard_calidad():
         Case.quality_score.is_(None)
     ).count()
 
-    # Desglose por agente
-    back_agents = User.query.filter(User.role.in_(["agente_back", "agent"])).all()
+    # Desglose por agente con GROUP BY en SQL en una sola consulta
+    back_agents = User.query.filter(User.role.in_(["agente_back", "agent"])).order_by(User.display_name).all()
+    agent_grouped = db.session.query(
+        Case.assigned_to,
+        func.count(Case.id).label("count"),
+        func.avg(Case.quality_score).label("avg")
+    ).filter(Case.quality_score.isnot(None)).group_by(Case.assigned_to).all()
+
+    agent_metrics = {row.assigned_to: (row.count, round(row.avg) if row.avg else None) for row in agent_grouped}
+
     agent_stats = []
     for agent in back_agents:
-        agent_audits = [c for c in audited_cases if c.assigned_to == agent.id]
-        count = len(agent_audits)
-        avg = round(sum(c.quality_score for c in agent_audits) / count) if count > 0 else None
+        count, avg = agent_metrics.get(agent.id, (0, None))
         agent_stats.append({
             "name": agent.display_name,
             "audits_count": count,
             "avg_score": avg,
         })
 
-    # Casos resueltos recientes para auditar
-    cases_to_audit = Case.query.filter(
+    # Cargar solo los 15 más recientes con relaciones precargadas
+    recent_audited = Case.query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+    ).filter(Case.quality_score.isnot(None)).order_by(Case.audited_at.desc()).limit(15).all()
+
+    # Casos resueltos recientes para auditar con relaciones precargadas
+    cases_to_audit = Case.query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+    ).filter(
         Case.status.in_(["resuelto", "rechazado"]),
         Case.quality_score.is_(None)
     ).order_by(Case.updated_at.desc()).limit(20).all()
@@ -53,7 +71,7 @@ def dashboard_calidad():
         avg_score=avg_score,
         pending_audit_count=pending_audit_count,
         agent_stats=agent_stats,
-        recent_audited=audited_cases[:15],
+        recent_audited=recent_audited,
         cases_to_audit=cases_to_audit,
     )
 

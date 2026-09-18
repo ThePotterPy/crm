@@ -1,12 +1,15 @@
-from flask import Flask
+from flask import Flask, request
 from flask_login import LoginManager
 from config import Config
-from models import db, User
+from models import db, User, ensure_database_indexes
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
+
+    # ── Configuración de caché para assets estáticos (12 horas) ──
+    app.config.setdefault("SEND_FILE_MAX_AGE_DEFAULT", 43200)
 
     # ── Inicializar extensiones ──
     db.init_app(app)
@@ -40,6 +43,8 @@ def create_app():
     # ── Context Processor Global ──
     @app.context_processor
     def inject_global_stats():
+        if request.endpoint == "static":
+            return {"my_assigned_cases_count": 0}
         from flask_login import current_user
         from models import Case
         if current_user.is_authenticated:
@@ -56,14 +61,17 @@ def create_app():
             return {"my_assigned_cases_count": assigned_count}
         return {"my_assigned_cases_count": 0}
 
-    # ── Crear tablas y auto-inicializar usuarios base si la BD es nueva ──
+    # ── Crear tablas, índices y auto-inicializar usuarios base si la BD es nueva ──
     with app.app_context():
         db.create_all()
-        try:
-            from seed import run_seed
-            run_seed()
-        except Exception as e:
-            app.logger.warning(f"Auto-seed warning: {e}")
+        ensure_database_indexes(db)
+        # Solo ejecutar seed si la base de datos es nueva (no existe admin aún)
+        if not User.query.filter_by(username="admin").first():
+            try:
+                from seed import run_seed
+                run_seed()
+            except Exception as e:
+                app.logger.warning(f"Auto-seed warning: {e}")
 
     return app
 

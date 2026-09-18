@@ -24,23 +24,26 @@ def run_tests():
         assert jorge.can_resolve_cases == True, "Jorge debería poder resolver casos"
         print("[OK] 1. Permisos de Jorge verificados: can_create_cases=True, can_resolve_cases=True")
 
-        # 2. Jorge crea un nuevo caso desde /nuevo-caso con auto-asignación
+        # 2. Jorge crea un nuevo caso desde /nuevo-caso
         sheet = SheetConfig.query.filter_by(is_active=True).first()
+        if sheet not in jorge.assigned_sheets.all():
+            jorge.assigned_sheets.append(sheet)
+            db.session.commit()
         test_ped = f"PED-BACK-{run_id}"
         res = client.post("/nuevo-caso", data={
             "sheet_id": sheet.id,
             "pedido_id": test_ped,
+            "input_id_pedido": test_ped,
             "fecha": "2026-09-17",
             "solicitud": sheet.display_name,
-            "autoasignar": "1",
             "input_observacion_detalle": "Creado por Back Office directamente",
         }, follow_redirects=True)
         assert res.status_code == 200
         case = Case.query.filter_by(pedido_id=test_ped).first()
         assert case is not None, "El caso creado por Back Office no se encontró"
-        assert case.assigned_to == jorge.id, f"El caso debería estar auto-asignado a Jorge, está en {case.assigned_to}"
+        assert case.assigned_to == jorge.id, f"El caso debería estar asignado a Jorge como encargado, está en {case.assigned_to}"
         assert case.created_by == jorge.id
-        print(f"[OK] 2. Caso #{case.id} creado por Jorge y auto-asignado correctamente")
+        print(f"[OK] 2. Caso #{case.id} creado por Jorge y asignado al encargado correctamente")
 
         # 3. Intentar resolver sin evidencia (debe fallar la validación segura)
         res = client.post(f"/caso/{case.id}/gestionar", data={

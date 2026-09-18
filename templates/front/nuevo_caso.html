@@ -19,16 +19,36 @@
     </div>
 
     <form method="POST" action="{{ url_for('front.nuevo_caso') }}" id="form-nuevo-caso">
-        <div class="form-group" style="margin-bottom: 24px;">
-            <label class="form-label" for="sheet_id">Seleccioná el Tipo de Caso *</label>
-            <select name="sheet_id" id="sheet_id" class="form-select" required onchange="renderSheetForm(this.value)">
-                <option value="">— Elegí una tipología —</option>
-                {% for s in sheets %}
-                <option value="{{ s.id }}" {% if selected_sheet and selected_sheet.id == s.id %}selected{% endif %}>
-                    {{ s.display_name }}
-                </option>
-                {% endfor %}
-            </select>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-bottom: 24px;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="sheet_id">Seleccioná el Tipo de Caso *</label>
+                <select name="sheet_id" id="sheet_id" class="form-select" required onchange="renderSheetForm(this.value)">
+                    <option value="">— Elegí una tipología —</option>
+                    {% for s in sheets %}
+                    <option value="{{ s.id }}" {% if selected_sheet and selected_sheet.id == s.id %}selected{% endif %}>
+                        {{ s.display_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="caso_wise" style="color: #a5b4fc; font-weight: 600;">
+                    🌐 ID Caso en Plataforma Wise
+                </label>
+                <input type="text" name="caso_wise" id="caso_wise" class="form-input"
+                       placeholder="Ej: WISE-10492 o N° ticket en Wise">
+            </div>
+
+            <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" for="prioridad">Prioridad Operativa</label>
+                <select name="prioridad" id="prioridad" class="form-select">
+                    <option value="urgente">🔴 Urgente</option>
+                    <option value="alta">🟠 Alta</option>
+                    <option value="media" selected>🔵 Media</option>
+                    <option value="baja">⚪ Baja</option>
+                </select>
+            </div>
         </div>
 
         <div id="dynamic-fields-container">
@@ -40,20 +60,16 @@
         </div>
 
         <div id="form-actions" style="display: none; margin-top: 30px; padding-top: 20px; border-top: 1px solid var(--border-subtle);" class="flex justify-between items-center">
-            <div>
-                {% if current_user.is_back_office or current_user.is_admin or current_user.is_supervisor %}
-                <label class="flex items-center gap-2" style="cursor: pointer; font-size: 0.86rem; color: #f8fafc; font-weight: 600;">
-                    <input type="checkbox" name="autoasignar" value="1" checked style="width: 16px; height: 16px; accent-color: #38bdf8;">
-                    <span>⚡ Asignarme este caso a mí para gestionarlo ahora</span>
-                </label>
-                <div style="font-size: 0.76rem; color: var(--text-muted); margin-top: 2px;">
-                    Si se desmarca, se enrutará automáticamente al agente Back con menor carga.
+            <div style="display: flex; align-items: center; gap: 10px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 10px 14px;">
+                <span style="font-size: 1.2rem;">⚡</span>
+                <div>
+                    <div style="font-size: 0.86rem; font-weight: 600; color: #93c5fd;">
+                        Enrutamiento Automático al Encargado
+                    </div>
+                    <div style="font-size: 0.78rem; color: #cbd5e1;">
+                        Este caso se asignará directamente al asesor de Back Office correspondiente según balanceo de carga activa.
+                    </div>
                 </div>
-                {% else %}
-                <div style="font-size: 0.82rem; color: var(--text-muted);">
-                    ⚡ Al enviar, el caso se asignará automáticamente a la cola de Back Office correspondiente.
-                </div>
-                {% endif %}
             </div>
             <div class="flex gap-3">
                 <a href="{{ url_for('dashboard.index') }}" class="btn btn-secondary">Cancelar</a>
@@ -102,8 +118,8 @@ function renderSheetForm(sheetId) {
     `;
 
     inputs.forEach(col => {
-        const isRequired = col.name.toLowerCase().includes('obligatorio') || col.name.toLowerCase().includes('pedido');
-        const isTextArea = col.name.toLowerCase().includes('observaci') || col.name.toLowerCase().includes('detalle') || col.name.toLowerCase().includes('direcci');
+        const isRequired = !!col.required || col.maps_to === 'pedido_id' || col.name.toLowerCase().includes('obligatorio') || col.name.toLowerCase().includes('pedido');
+        const isTextArea = col.type === 'textarea' || col.name.toLowerCase().includes('observaci') || col.name.toLowerCase().includes('detalle') || col.name.toLowerCase().includes('direcci');
 
         html += `
             <div class="form-group" style="${isTextArea ? 'grid-column: 1 / -1;' : ''}">

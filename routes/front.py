@@ -1,7 +1,8 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_required, current_user
+from sqlalchemy import func, case as sql_case
 from models import db, Case, SheetConfig, User, CaseEvent, log_case_event
 
 front_bp = Blueprint("front", __name__)
@@ -26,8 +27,9 @@ def nuevo_caso():
         sheet = SheetConfig.query.get_or_404(sheet_id)
         input_columns = json.loads(sheet.input_columns) if sheet.input_columns else []
 
-        # Recoger datos del formulario
+        # Recoger datos del formulario y validar campos requeridos
         raw_data = {}
+        missing_fields = []
         pedido_id = request.form.get("pedido_id", "").strip()
         fecha = request.form.get("fecha", "").strip() or datetime.now().strftime("%Y-%m-%d")
         solicitud = request.form.get("solicitud", "").strip()
@@ -43,66 +45,98 @@ def nuevo_caso():
             val = request.form.get(f"input_{key}", request.form.get(f"field_{key}", request.form.get(key, ""))).strip()
             raw_data[key] = val
 
-            # Extraer campos clave para búsquedas directas
-            k_lower = key.lower()
-            if any(x in k_lower for x in ("pedido", "nro_pedido", "numero_pedido", "id_pedido")):
-                if not pedido_id:
+            if col.get("required") and not val:
+                missing_fields.append(col.get("name", key))
+
+            # Extracción determinista mediante maps_to
+            maps_to = col.get("maps_to")
+            if maps_to and val:
+                if maps_to == "pedido_id" and not pedido_id:
                     pedido_id = val
-            elif "fecha" in k_lower and not fecha:
-                fecha = val
-            elif "solicitud" in k_lower and not solicitud:
-                solicitud = val
-            elif "tienda" in k_lower and not tienda:
-                tienda = val
-            elif any(x in k_lower for x in ("dni", "cuit")) and not dni_cuit:
-                dni_cuit = val
-            elif "tracking" in k_lower and not tracking:
-                tracking = val
-            elif any(x in k_lower for x in ("nombre", "cliente")) and not nombre_cliente:
-                nombre_cliente = val
-            elif any(x in k_lower for x in ("mail", "correo")) and not email_cliente:
-                email_cliente = val
-            elif "sap" in k_lower and not codigo_sap:
-                codigo_sap = val
+                elif maps_to == "fecha" and not fecha:
+                    fecha = val
+                elif maps_to == "solicitud" and not solicitud:
+                    solicitud = val
+                elif maps_to == "tienda" and not tienda:
+                    tienda = val
+                elif maps_to == "dni_cuit" and not dni_cuit:
+                    dni_cuit = val
+                elif maps_to == "tracking" and not tracking:
+                    tracking = val
+                elif maps_to == "codigo_sap" and not codigo_sap:
+                    codigo_sap = val
+                elif maps_to == "nombre_cliente" and not nombre_cliente:
+                    nombre_cliente = val
+                elif maps_to == "email_cliente" and not email_cliente:
+                    email_cliente = val
+            elif not maps_to and val:
+                # Heurística de respaldo si la columna no declaró maps_to
+                k_lower = key.lower()
+                if any(x in k_lower for x in ("pedido", "nro_pedido", "numero_pedido", "id_pedido")) and not pedido_id:
+                    pedido_id = val
+                elif "fecha" in k_lower and not fecha:
+                    fecha = val
+                elif "solicitud" in k_lower and not solicitud:
+                    solicitud = val
+                elif "tienda" in k_lower and not tienda:
+                    tienda = val
+                elif any(x in k_lower for x in ("dni", "cuit")) and not dni_cuit:
+                    dni_cuit = val
+                elif "tracking" in k_lower and not tracking:
+                    tracking = val
+                elif any(x in k_lower for x in ("nombre", "cliente")) and not nombre_cliente:
+                    nombre_cliente = val
+                elif any(x in k_lower for x in ("mail", "correo")) and not email_cliente:
+                    email_cliente = val
+                elif "sap" in k_lower and not codigo_sap:
+                    codigo_sap = val
+
+        if missing_fields:
+            flash(f"Completá los campos obligatorios: {', '.join(missing_fields)}", "error")
+            return redirect(url_for("front.nuevo_caso", sheet_id=sheet.id))
 
         if not solicitud:
             solicitud = sheet.display_name
 
-        # Fallback si pedido_id sigue vacío
         if not pedido_id:
-            for val in raw_data.values():
-                if val:
-                    pedido_id = val
-                    break
+            pedido_id = (request.form.get("pedido_id") or "").strip()
+
+        # Extraer campos de plataforma Wise CX y Prioridad
+        caso_wise = (request.form.get("caso_wise") or request.form.get("input_caso_wise") or request.form.get("input_caso_salesforce") or "").strip()
+        prioridad = request.form.get("prioridad", sheet.default_priority or "media").strip().lower()
+        if prioridad not in ("urgente", "alta", "media", "baja"):
+            prioridad = "media"
+
+        # Calcular SLA objetivo de atención
+        sla_hours = sheet.sla_hours or 48
+        sla_deadline = datetime.now(timezone.utc) + timedelta(hours=sla_hours)
 
         agente_carga_name = current_user.display_name
 
-        # ── Enrutamiento Inteligente / Auto-asignación ──
-        autoasignar = (request.form.get("autoasignar") == "1")
+        # ── Enrutamiento Inteligente Estricto al Encargado de la Tipología ──
+        # 1. Buscar agentes de Back Office activos asignados a esta tipología (cola)
+        assigned_agents = sheet.assigned_users.filter(User.role == "agente_back", User.is_active_user == True).all()
+        if not assigned_agents:
+            # Fallback: cualquier usuario activo asignado a esta tipología (ej. supervisor)
+            assigned_agents = sheet.assigned_users.filter(User.is_active_user == True).all()
+        if not assigned_agents:
+            # Fallback secundario: cualquier agente de Back Office activo del sistema
+            assigned_agents = User.query.filter(User.role == "agente_back", User.is_active_user == True).all()
+
         selected_back_agent = None
-
-        if autoasignar and (current_user.is_back_office or current_user.is_admin or current_user.is_supervisor):
-            selected_back_agent = current_user
-        else:
-            # Buscar qué agentes de Back Office tienen asignada esta hoja (sub-rol)
-            assigned_agents = sheet.assigned_users.filter(User.role == "agente_back", User.is_active_user == True).all()
-            if not assigned_agents:
-                assigned_agents = sheet.assigned_users.filter_by(is_active_user=True).all()
-
-            if assigned_agents:
-                # Asignar al agente con menor carga de casos activos en este sub-rol
-                best_agent = None
-                min_active = 999999
-                for agent in assigned_agents:
-                    active_count = Case.query.filter(
-                        Case.sheet_config_id == sheet.id,
-                        Case.assigned_to == agent.id,
-                        Case.status.in_(["nuevo", "en_proceso", "reverificar", "reenviado"]),
-                    ).count()
-                    if active_count < min_active:
-                        min_active = active_count
-                        best_agent = agent
-                selected_back_agent = best_agent or assigned_agents[0]
+        if assigned_agents:
+            # Asignar al agente con menor carga total de casos activos (balanceo en tiempo real)
+            best_agent = None
+            min_active = 999999
+            for agent in assigned_agents:
+                active_count = Case.query.filter(
+                    Case.assigned_to == agent.id,
+                    Case.status.in_(["nuevo", "en_proceso", "reverificar", "reenviado"]),
+                ).count()
+                if active_count < min_active:
+                    min_active = active_count
+                    best_agent = agent
+            selected_back_agent = best_agent or assigned_agents[0]
 
         # Crear el caso
         case = Case(
@@ -110,12 +144,17 @@ def nuevo_caso():
             raw_data=json.dumps(raw_data, ensure_ascii=False),
             output_data="{}",
             pedido_id=pedido_id or "S/N",
+            caso_wise=caso_wise,
+            caso_salesforce=caso_wise,  # Compatibilidad
+            prioridad=prioridad,
+            sla_deadline=sla_deadline,
             fecha=fecha,
             solicitud=solicitud,
             tienda=tienda,
             agente_front=agente_carga_name,
             dni_cuit=dni_cuit,
             tracking=tracking,
+            codigo_sap=codigo_sap,
             nombre_cliente=nombre_cliente,
             email_cliente=email_cliente,
             created_by=current_user.id,
@@ -123,7 +162,7 @@ def nuevo_caso():
             status="nuevo",
         )
         db.session.add(case)
-        db.session.commit()
+        db.session.flush()  # Genera case.id para los eventos sin hacer commit definitivo
 
         # Registrar evento de creación en la línea de tiempo
         log_case_event(
@@ -173,8 +212,9 @@ def nuevo_caso():
 @front_bp.route("/mis-casos-front")
 @login_required
 def bandeja_front():
-    """Bandeja de entrada del Agente Front: prioriza casos devueltos (re-verificar / rechazados)."""
+    """Bandeja de entrada del Agente Front: prioriza casos devueltos con filtro por tipología."""
     tab = request.args.get("tab", "devueltos")
+    sheet_filter = request.args.get("sheet", type=int)
 
     # Si es admin o supervisor puede ver todo o filtrar
     if current_user.is_admin or current_user.is_supervisor:
@@ -182,37 +222,41 @@ def bandeja_front():
     else:
         query = Case.query.filter_by(created_by=current_user.id)
 
-    # Conteos para badges
-    if current_user.is_admin or current_user.is_supervisor:
-        count_devueltos = Case.query.filter(Case.status.in_(["reverificar", "rechazado"])).count()
-        count_activos = Case.query.filter(Case.status.in_(["nuevo", "en_proceso", "reenviado"])).count()
-        count_resueltos = Case.query.filter(Case.status.in_(["resuelto", "cerrado"])).count()
-    else:
-        count_devueltos = Case.query.filter(
-            Case.created_by == current_user.id,
-            Case.status.in_(["reverificar", "rechazado"])
-        ).count()
-        count_activos = Case.query.filter(
-            Case.created_by == current_user.id,
-            Case.status.in_(["nuevo", "en_proceso", "reenviado"])
-        ).count()
-        count_resueltos = Case.query.filter(
-            Case.created_by == current_user.id,
-            Case.status.in_(["resuelto", "cerrado"])
-        ).count()
+    sheets = SheetConfig.query.filter_by(is_active=True).order_by(SheetConfig.display_name).all()
+
+    # Conteos para badges en 1 sola consulta SQL agregada (globales para este agente)
+    badge_row = query.with_entities(
+        func.count(sql_case((Case.status.in_(["reverificar", "rechazado"]), 1))).label("devueltos"),
+        func.count(sql_case((Case.status.in_(["nuevo", "en_proceso", "reenviado"]), 1))).label("activos"),
+        func.count(sql_case((Case.status.in_(["resuelto", "cerrado"]), 1))).label("resueltos"),
+    ).first()
+
+    count_devueltos = (badge_row.devueltos if badge_row else 0) or 0
+    count_activos = (badge_row.activos if badge_row else 0) or 0
+    count_resueltos = (badge_row.resueltos if badge_row else 0) or 0
+
+    base_cases_query = query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+    )
+
+    if sheet_filter:
+        base_cases_query = base_cases_query.filter(Case.sheet_config_id == sheet_filter)
 
     if tab == "devueltos":
-        cases = query.filter(Case.status.in_(["reverificar", "rechazado"])).order_by(Case.updated_at.desc()).all()
+        cases = base_cases_query.filter(Case.status.in_(["reverificar", "rechazado"])).order_by(Case.updated_at.desc()).limit(100).all()
     elif tab == "activos":
-        cases = query.filter(Case.status.in_(["nuevo", "en_proceso", "reenviado"])).order_by(Case.updated_at.desc()).all()
+        cases = base_cases_query.filter(Case.status.in_(["nuevo", "en_proceso", "reenviado"])).order_by(Case.updated_at.desc()).limit(100).all()
     elif tab == "resueltos":
-        cases = query.filter(Case.status.in_(["resuelto", "cerrado"])).order_by(Case.updated_at.desc()).all()
+        cases = base_cases_query.filter(Case.status.in_(["resuelto", "cerrado"])).order_by(Case.updated_at.desc()).limit(100).all()
     else:
-        cases = query.order_by(Case.created_at.desc()).all()
+        cases = base_cases_query.order_by(Case.created_at.desc()).limit(100).all()
 
     return render_template(
         "front/bandeja.html",
         cases=cases,
+        sheets=sheets,
+        sheet_filter=sheet_filter,
         active_tab=tab,
         count_devueltos=count_devueltos,
         count_activos=count_activos,

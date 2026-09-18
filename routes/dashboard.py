@@ -2,6 +2,7 @@ import json
 from datetime import datetime, timezone
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_required, current_user
+from sqlalchemy import func, case as sql_case
 from models import db, Case, SheetConfig, User, CaseEvent, log_case_event
 from services.sheets_sync import sync_case_to_sheet
 
@@ -9,14 +10,17 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 
 @dashboard_bp.route("/")
+@dashboard_bp.route("/casos")
 @login_required
 def index():
-    """Dashboard principal: soporte para vistas 'Todos los Casos' y 'Casos Asignados'."""
+    """Dashboard principal y consola global de casos con filtros multidimensionales."""
+    valid_views = ("todos", "mis_casos", "asignados", "sin_asignar", "vencidos", "reverificar")
     view_filter = request.args.get("view", "todos").strip().lower()
-    if view_filter not in ("todos", "asignados"):
+    if view_filter not in valid_views:
         view_filter = "todos"
     status_filter = request.args.get("status", "").strip()
     sheet_filter = request.args.get("sheet", "").strip() or request.args.get("tipo", "").strip()
+    assigned_filter = request.args.get("agente", "").strip()
     search_query = request.args.get("q", "").strip()
 
     # Determinar tipologías visibles según permisos
@@ -31,24 +35,43 @@ def index():
         SheetConfig.id.in_(assigned_sheet_ids), SheetConfig.is_active == True
     ).order_by(SheetConfig.display_name).all() if assigned_sheet_ids else SheetConfig.query.filter_by(is_active=True).order_by(SheetConfig.display_name).all()
 
-    # Query base según la vista activa
-    if view_filter == "asignados":
+    # Asesores activos para el filtro "Quién gestiona"
+    agents = User.query.filter(
+        User.is_active_user == True,
+        User.role.in_(["agente_back", "supervisor", "admin"])
+    ).order_by(User.display_name).all()
+
+    # Query base según permisos
+    if current_user.is_admin or current_user.is_supervisor or current_user.is_quality or current_user.can_view_all_cases:
+        base_accessible_query = Case.query
+    elif current_user.is_back_office:
+        base_accessible_query = Case.query.filter(Case.sheet_config_id.in_(assigned_sheet_ids)) if assigned_sheet_ids else Case.query.filter(Case.id == -1)
+    else:
+        base_accessible_query = Case.query.filter(Case.created_by == current_user.id)
+
+    # Query base según la vista activa (Salesforce List Views & Wise Queues)
+    now_utc = datetime.now(timezone.utc)
+    if view_filter in ("asignados", "mis_casos"):
         if current_user.is_front_office and not current_user.is_back_office:
             base_view_query = Case.query.filter(
                 db.or_(Case.assigned_to == current_user.id, Case.created_by == current_user.id)
             )
         else:
             base_view_query = Case.query.filter(Case.assigned_to == current_user.id)
+    elif view_filter == "sin_asignar":
+        base_view_query = base_accessible_query.filter(Case.assigned_to.is_(None))
+    elif view_filter == "vencidos":
+        base_view_query = base_accessible_query.filter(
+            Case.sla_deadline < now_utc,
+            Case.status.notin_(["resuelto", "cerrado"])
+        )
+    elif view_filter == "reverificar":
+        base_view_query = base_accessible_query.filter(Case.status == "reverificar")
     else:
-        # 'todos': Todos los casos
-        if current_user.is_admin or current_user.is_supervisor or current_user.is_quality or current_user.can_view_all_cases:
-            base_view_query = Case.query
-        elif current_user.is_back_office:
-            base_view_query = Case.query.filter(Case.sheet_config_id.in_(assigned_sheet_ids)) if assigned_sheet_ids else Case.query.filter(Case.id == -1)
-        else:
-            base_view_query = Case.query.filter(Case.created_by == current_user.id)
+        # 'todos': Todos los casos accesibles
+        base_view_query = base_accessible_query
 
-    # Aplicar filtros interactivos de búsqueda, tipología y estado
+    # Aplicar filtros interactivos de búsqueda, tipología, estado y asesor asignado
     query = base_view_query
     if status_filter:
         query = query.filter(Case.status == status_filter)
@@ -57,50 +80,104 @@ def index():
             query = query.filter(Case.sheet_config_id == int(sheet_filter))
         except ValueError:
             pass
+    if assigned_filter:
+        if assigned_filter in ("unassigned", "sin_asignar"):
+            query = query.filter(Case.assigned_to.is_(None))
+        elif assigned_filter.isdigit():
+            query = query.filter(Case.assigned_to == int(assigned_filter))
     if search_query:
         query = query.filter(
             db.or_(
                 Case.pedido_id.ilike(f"%{search_query}%"),
+                Case.caso_wise.ilike(f"%{search_query}%"),
+                Case.caso_salesforce.ilike(f"%{search_query}%"),
                 Case.solicitud.ilike(f"%{search_query}%"),
                 Case.agente_front.ilike(f"%{search_query}%"),
                 Case.dni_cuit.ilike(f"%{search_query}%"),
                 Case.tracking.ilike(f"%{search_query}%"),
                 Case.codigo_sap.ilike(f"%{search_query}%"),
-                Case.nombre_cliente.ilike(f"%{search_query}%"),
-                Case.email_cliente.ilike(f"%{search_query}%"),
+                Case.tienda.ilike(f"%{search_query}%"),
             )
         )
 
-    cases = query.order_by(Case.created_at.desc()).limit(150).all()
+    # Paginación interactiva (50 por página)
+    page = request.args.get("page", 1, type=int)
+    per_page = 50
 
-    # Métricas KPIs calculadas sobre la vista actual
-    total_cases = base_view_query.count()
-    new_cases = base_view_query.filter(Case.status == "nuevo").count()
-    in_process = base_view_query.filter(Case.status == "en_proceso").count()
-    reverificar_count = base_view_query.filter(Case.status == "reverificar").count()
-    reenviado_count = base_view_query.filter(Case.status == "reenviado").count()
-    resolved_cases = base_view_query.filter(Case.status == "resuelto").count()
-    rejected_cases = base_view_query.filter(Case.status == "rechazado").count()
+    pagination = query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+    ).order_by(Case.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    cases = pagination.items
 
-    # Conteos para los botones segmentados de vistas
-    if current_user.is_admin or current_user.is_supervisor or current_user.is_quality or current_user.can_view_all_cases:
-        count_todos = Case.query.count()
-    elif current_user.is_back_office:
-        count_todos = Case.query.filter(Case.sheet_config_id.in_(assigned_sheet_ids)).count() if assigned_sheet_ids else 0
-    else:
-        count_todos = Case.query.filter(Case.created_by == current_user.id).count()
+    # Contadores por tipología calculados en 1 sola consulta SQL agregada para los tabs
+    sheet_counts_raw = base_view_query.with_entities(
+        Case.sheet_config_id,
+        func.count(Case.id).label("total"),
+        func.sum(sql_case((Case.status.in_(["nuevo", "en_proceso", "reverificar", "reenviado"]), 1), else_=0)).label("activos")
+    ).group_by(Case.sheet_config_id).all()
+    sheet_counts = {sid: {"total": tot or 0, "activos": act or 0} for sid, tot, act in sheet_counts_raw}
 
+    sheet_tabs = []
+    for s in sheets:
+        c_info = sheet_counts.get(s.id, {"total": 0, "activos": 0})
+        sheet_tabs.append({
+            "sheet": s,
+            "total": c_info["total"],
+            "activos": c_info["activos"],
+            "is_selected": (sheet_filter == str(s.id))
+        })
+
+    # Métricas KPIs calculadas sobre la vista actual en UNA sola consulta SQL agregada
+    kpi_row = base_view_query.with_entities(
+        func.count(Case.id).label("total"),
+        func.count(sql_case((Case.status == "nuevo", 1))).label("nuevo"),
+        func.count(sql_case((Case.status == "en_proceso", 1))).label("en_proceso"),
+        func.count(sql_case((Case.status == "reverificar", 1))).label("reverificar"),
+        func.count(sql_case((Case.status == "reenviado", 1))).label("reenviado"),
+        func.count(sql_case((Case.status == "resuelto", 1))).label("resuelto"),
+        func.count(sql_case((Case.status == "rechazado", 1))).label("rechazado"),
+    ).first()
+
+    total_cases = (kpi_row.total if kpi_row else 0) or 0
+    new_cases = (kpi_row.nuevo if kpi_row else 0) or 0
+    in_process = (kpi_row.en_proceso if kpi_row else 0) or 0
+    reverificar_count = (kpi_row.reverificar if kpi_row else 0) or 0
+    reenviado_count = (kpi_row.reenviado if kpi_row else 0) or 0
+    resolved_cases = (kpi_row.resuelto if kpi_row else 0) or 0
+    rejected_cases = (kpi_row.rechazado if kpi_row else 0) or 0
+
+    # Conteos para los botones segmentados de vistas (Salesforce List Views & Wise Queues)
+    count_todos = base_accessible_query.count()
     if current_user.is_front_office and not current_user.is_back_office:
-        count_asignados = Case.query.filter(
-            db.or_(Case.assigned_to == current_user.id, Case.created_by == current_user.id)
+        count_mis_casos = Case.query.filter(
+            db.or_(Case.assigned_to == current_user.id, Case.created_by == current_user.id),
+            Case.status.notin_(["resuelto", "cerrado"])
         ).count()
     else:
-        count_asignados = Case.query.filter(Case.assigned_to == current_user.id).count()
+        count_mis_casos = Case.query.filter(
+            Case.assigned_to == current_user.id,
+            Case.status.notin_(["resuelto", "cerrado"])
+        ).count()
+    count_sin_asignar = base_accessible_query.filter(
+        Case.assigned_to.is_(None),
+        Case.status.notin_(["resuelto", "cerrado"])
+    ).count()
+    count_vencidos = base_accessible_query.filter(
+        Case.sla_deadline < now_utc,
+        Case.status.notin_(["resuelto", "cerrado"])
+    ).count()
+    count_reverificar = base_accessible_query.filter(
+        Case.status == "reverificar"
+    ).count()
+    count_asignados = count_mis_casos
 
     return render_template(
         "dashboard.html",
         cases=cases,
+        pagination=pagination,
         sheets=sheets,
+        sheet_tabs=sheet_tabs,
         total_cases=total_cases,
         new_cases=new_cases,
         in_process=in_process,
@@ -110,9 +187,15 @@ def index():
         rejected_cases=rejected_cases,
         status_filter=status_filter,
         sheet_filter=sheet_filter,
+        assigned_filter=assigned_filter,
+        agents=agents,
         search_query=search_query,
         view_filter=view_filter,
         count_todos=count_todos,
+        count_mis_casos=count_mis_casos,
+        count_sin_asignar=count_sin_asignar,
+        count_vencidos=count_vencidos,
+        count_reverificar=count_reverificar,
         count_asignados=count_asignados,
     )
 
@@ -125,10 +208,13 @@ def buscar_global():
     if not q:
         return redirect(url_for("dashboard.index"))
 
-    # Búsqueda exhaustiva en todos los campos e información JSON
-    results = Case.query.filter(
+    results = Case.query.options(
+        db.joinedload(Case.sheet_config),
+        db.joinedload(Case.assigned_user),
+    ).filter(
         db.or_(
             Case.pedido_id.ilike(f"%{q}%"),
+            Case.caso_wise.ilike(f"%{q}%"),
             Case.dni_cuit.ilike(f"%{q}%"),
             Case.tracking.ilike(f"%{q}%"),
             Case.nombre_cliente.ilike(f"%{q}%"),
@@ -155,7 +241,8 @@ def case_detail(case_id):
     """Vista de detalle 360° del caso (Salesforce Record Page)."""
     case = Case.query.get_or_404(case_id)
 
-    # Verificar acceso al caso
+    # Verificar acceso al caso con caché de asignaciones
+    user_assigned_sheet_ids = [s.id for s in current_user.assigned_sheets.all()] if current_user.is_authenticated else []
     can_access = (
         current_user.is_admin
         or current_user.is_supervisor
@@ -163,17 +250,17 @@ def case_detail(case_id):
         or current_user.can_view_all_cases
         or (case.created_by == current_user.id)
         or (case.assigned_to == current_user.id)
-        or (case.sheet_config_id in [s.id for s in current_user.assigned_sheets.all()])
+        or (case.sheet_config_id in user_assigned_sheet_ids)
     )
     if not can_access:
         flash("No tenés acceso a este caso.", "error")
         return redirect(url_for("dashboard.index"))
 
-    raw_data = json.loads(case.raw_data) if case.raw_data else {}
-    output_data = json.loads(case.output_data) if case.output_data else {}
+    raw_data = case.parsed_raw_data
+    output_data = case.parsed_output_data
     input_columns = json.loads(case.sheet_config.input_columns) if case.sheet_config.input_columns else []
     output_columns = json.loads(case.sheet_config.output_columns) if case.sheet_config.output_columns else []
-    events = case.events.all()
+    events = case.events.options(db.joinedload(CaseEvent.user)).all()
 
     # Checklist de calidad previo si existe
     quality_chk = json.loads(case.quality_checklist) if case.quality_checklist else {}
@@ -182,6 +269,14 @@ def case_detail(case_id):
     back_agents = []
     if current_user.is_admin or current_user.is_supervisor:
         back_agents = User.query.filter(User.role.in_(["agente_back", "supervisor", "admin"]), User.is_active_user == True).order_by(User.display_name).all()
+
+    # Casos relacionados por el mismo N° de Pedido (Trazabilidad Order 360°)
+    related_order_cases = []
+    if case.pedido_id:
+        related_order_cases = Case.query.filter(
+            Case.pedido_id == case.pedido_id,
+            Case.id != case.id
+        ).order_by(Case.created_at.desc()).all()
 
     return render_template(
         "caso_detalle.html",
@@ -193,6 +288,7 @@ def case_detail(case_id):
         events=events,
         quality_chk=quality_chk,
         back_agents=back_agents,
+        related_order_cases=related_order_cases,
     )
 
 
@@ -203,10 +299,11 @@ def manage_case(case_id):
     case = Case.query.get_or_404(case_id)
 
     # Verificar acceso de edición (Back Office, Supervisor, Admin)
+    user_assigned_sheet_ids = [s.id for s in current_user.assigned_sheets.all()] if current_user.is_authenticated else []
     can_manage = (
         current_user.is_admin
         or current_user.is_supervisor
-        or (case.sheet_config_id in [s.id for s in current_user.assigned_sheets.all()])
+        or (case.sheet_config_id in user_assigned_sheet_ids)
     )
     if not can_manage:
         flash("No tenés permiso para editar la gestión de este caso.", "error")
@@ -219,7 +316,7 @@ def manage_case(case_id):
     output_columns = json.loads(case.sheet_config.output_columns) if case.sheet_config.output_columns else []
     output_data = {}
     sap_code_found = ""
-    salesforce_case_found = ""
+    wise_case_found = ""
 
     for col in output_columns:
         col_key = col.get("key", col.get("name", ""))
@@ -232,23 +329,32 @@ def manage_case(case_id):
 
         output_data[col_key] = val
 
-        # Detectar código SAP y Salesforce para indexación
+        # Detectar código SAP y Wise para indexación
         k_lower = col_key.lower()
         if any(x in k_lower for x in ("sap", "codigo_sap", "zre", "zech")):
             if val and not sap_code_found:
                 sap_code_found = val
-        if any(x in k_lower for x in ("salesforce", "saleforce")) and val:
-            salesforce_case_found = val
+        if any(x in k_lower for x in ("wise", "caso_wise", "salesforce", "saleforce")) and val:
+            wise_case_found = val
 
-    if not salesforce_case_found:
-        salesforce_case_found = request.form.get("caso_salesforce", "").strip()
+    wise_input = (request.form.get("caso_wise") or request.form.get("caso_salesforce") or "").strip()
+    if wise_input:
+        case.caso_wise = wise_input
+        case.caso_salesforce = wise_input
+    elif wise_case_found:
+        case.caso_wise = wise_case_found
+        case.caso_salesforce = wise_case_found
+
     if not sap_code_found:
         sap_code_found = request.form.get("codigo_sap", "").strip()
 
     if sap_code_found:
         case.codigo_sap = sap_code_found
-    if salesforce_case_found:
-        case.caso_salesforce = salesforce_case_found
+
+    # Actualizar prioridad si se envió
+    p_input = request.form.get("prioridad", "").strip().lower()
+    if p_input in ("urgente", "alta", "media", "baja"):
+        case.prioridad = p_input
 
     # Asignar al usuario actual si no tenía asignado
     if not case.assigned_to:
@@ -265,7 +371,7 @@ def manage_case(case_id):
         case.motivo_reverificacion = motivo_reverificar
         case.output_data = json.dumps(output_data, ensure_ascii=False)
         case.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
+        db.session.flush()
 
         log_case_event(
             case_id=case.id,
@@ -321,7 +427,7 @@ def manage_case(case_id):
 
         case.output_data = json.dumps(output_data, ensure_ascii=False)
         case.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
+        db.session.flush()
 
         log_case_event(
             case_id=case.id,
@@ -344,7 +450,6 @@ def manage_case(case_id):
             flash("Tu rol no tiene permisos para resolver casos.", "error")
             return redirect(url_for("dashboard.case_detail", case_id=case.id))
 
-        # Validación lógica de resolución segura: exige al menos un identificador o nota de gestión
         has_evidence = bool(
             case.caso_salesforce or
             case.codigo_sap or
@@ -355,6 +460,7 @@ def manage_case(case_id):
             return redirect(url_for("dashboard.case_detail", case_id=case.id))
 
         case.status = "resuelto"
+        case.resolved_at = datetime.now(timezone.utc)
         for col in output_columns:
             ckey = col.get("key", "")
             if ckey in ("resuelto", "estado_resuelto"):
@@ -363,7 +469,7 @@ def manage_case(case_id):
 
         case.output_data = json.dumps(output_data, ensure_ascii=False)
         case.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
+        db.session.flush()
 
         log_case_event(
             case_id=case.id,
@@ -374,16 +480,14 @@ def manage_case(case_id):
             old_val=old_status,
             new_val="resuelto",
         )
-        db.session.commit()
 
         # Si el caso resuelto es una solicitud de Retiro por Arrepentimiento,
-        # derivar automáticamente a la cola de 'Seguimiento de Retiros' para control logístico y reembolso
-        tracking_sheet = SheetConfig.query.filter_by(id=8).first() or SheetConfig.query.filter(SheetConfig.display_name.ilike("%seguimiento%retiro%")).first()
-        is_solicitud_retiro = (case.sheet_config_id == 1 or ("retiro" in (case.sheet_config.display_name or "").lower() and "seguimiento" not in (case.sheet_config.display_name or "").lower()))
+        # derivar automáticamente a la cola de 'Seguimiento de Retiros'
+        tracking_sheet = SheetConfig.query.filter_by(slug="seguimiento_retiros").first() or SheetConfig.query.filter(SheetConfig.display_name.ilike("%seguimiento%retiro%")).first()
+        is_solicitud_retiro = (case.sheet_config and case.sheet_config.slug == "retiro_arrepentimiento") or ("retiro" in (case.sheet_config.display_name if case.sheet_config else "").lower() and "seguimiento" not in (case.sheet_config.display_name if case.sheet_config else "").lower())
 
         new_tracking_case = None
         if is_solicitud_retiro and tracking_sheet:
-            # Verificar si ya existe un seguimiento para este pedido
             existing_tracking = Case.query.filter_by(sheet_config_id=tracking_sheet.id, pedido_id=case.pedido_id).first()
             if not existing_tracking:
                 tracking_raw = {
@@ -425,7 +529,7 @@ def manage_case(case_id):
                     status="en_proceso",
                 )
                 db.session.add(new_tracking_case)
-                db.session.commit()
+                db.session.flush()
 
                 log_case_event(
                     case_id=new_tracking_case.id,
@@ -443,8 +547,8 @@ def manage_case(case_id):
                     user_id=current_user.id,
                     new_val=f"Seguimiento #{new_tracking_case.id}",
                 )
-                db.session.commit()
 
+        db.session.commit()
         sync_case_to_sheet(case)
         if new_tracking_case:
             flash(f"Caso #{case.id} RESUELTO. Se generó el Caso #{new_tracking_case.id} en 'Seguimiento de Retiros' para control de retiro y reembolso.", "success")
@@ -457,10 +561,12 @@ def manage_case(case_id):
         new_status = request.form.get("status", case.status)
         if new_status in ("nuevo", "en_proceso", "resuelto", "rechazado", "reverificar", "reenviado", "cerrado"):
             case.status = new_status
+            if new_status in ("resuelto", "cerrado") and not case.resolved_at:
+                case.resolved_at = datetime.now(timezone.utc)
 
         case.output_data = json.dumps(output_data, ensure_ascii=False)
         case.updated_at = datetime.now(timezone.utc)
-        db.session.commit()
+        db.session.flush()
 
         if old_status != case.status:
             log_case_event(
@@ -472,8 +578,8 @@ def manage_case(case_id):
                 old_val=old_status,
                 new_val=case.status,
             )
-            db.session.commit()
 
+        db.session.commit()
         sync_case_to_sheet(case)
         flash(f"Caso #{case.id} actualizado con éxito.", "success")
         return redirect(url_for("dashboard.case_detail", case_id=case.id))
@@ -493,7 +599,7 @@ def tomar_caso(case_id):
     if case.status == "nuevo":
         case.status = "en_proceso"
     case.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
+    db.session.flush()
 
     log_case_event(
         case_id=case.id,
@@ -526,7 +632,7 @@ def reasignar_caso(case_id):
     old_name = case.assigned_user.display_name if case.assigned_user else "Sin asignar"
     case.assigned_to = new_user.id
     case.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
+    db.session.flush()
 
     log_case_event(
         case_id=case.id,
@@ -544,14 +650,15 @@ def reasignar_caso(case_id):
 @dashboard_bp.route("/caso/<int:case_id>/actualizar-seguimiento", methods=["POST"])
 @login_required
 def actualizar_seguimiento_retiro(case_id):
-    """Permite al agente Back Office actualizar el estado del retiro y el estado del reembolso."""
+    """Permite al agente Back Office actualizar el estado del retiro y el estado del reembolso sin modificar raw_data."""
     case = Case.query.get_or_404(case_id)
 
+    user_assigned_sheet_ids = [s.id for s in current_user.assigned_sheets.all()] if current_user.is_authenticated else []
     can_manage = (
         current_user.is_admin
         or current_user.is_supervisor
         or (case.assigned_to == current_user.id)
-        or (case.sheet_config_id in [s.id for s in current_user.assigned_sheets.all()])
+        or (case.sheet_config_id in user_assigned_sheet_ids)
         or current_user.is_back_office
     )
     if not can_manage:
@@ -565,36 +672,26 @@ def actualizar_seguimiento_retiro(case_id):
     observaciones = request.form.get("observaciones_seguimiento", "").strip()
 
     out_data = json.loads(case.output_data) if case.output_data else {}
-    raw_data = json.loads(case.raw_data) if case.raw_data else {}
+    old_estado_retiro = out_data.get("estado_retiro") or case.estado_retiro
+    old_reembolso = out_data.get("reembolso") or case.estado_reembolso
 
-    old_estado_retiro = out_data.get("estado_retiro") or raw_data.get("estado_retiro") or "Pendiente de retiro"
-    old_reembolso = out_data.get("reembolso") or raw_data.get("reembolso") or "Reembolso no solicitado"
-
+    # Actualizar únicamente output_data (gestión de back), preservando la integridad de raw_data
     if estado_retiro:
         out_data["estado_retiro"] = estado_retiro
-        raw_data["estado_retiro"] = estado_retiro
     if reembolso:
         out_data["reembolso"] = reembolso
-        raw_data["reembolso"] = reembolso
     if zre2:
         out_data["zre2"] = zre2
-        raw_data["zre2"] = zre2
         case.codigo_sap = zre2
     if ultimo_estado:
         out_data["ultimo_estado"] = ultimo_estado
-        raw_data["ultimo_estado"] = ultimo_estado
     if observaciones:
         out_data["obs"] = observaciones
         out_data["observaciones"] = observaciones
 
-    # Si fue reembolsado y retirado/ingresado, opcionalmente puede marcarse como resuelto/cerrado
-    if reembolso.lower() == "reembolsado":
-        case.status = "resuelto"
-
     case.output_data = json.dumps(out_data, ensure_ascii=False)
-    case.raw_data = json.dumps(raw_data, ensure_ascii=False)
     case.updated_at = datetime.now(timezone.utc)
-    db.session.commit()
+    db.session.flush()
 
     changes = []
     if estado_retiro and estado_retiro != old_estado_retiro:
@@ -621,4 +718,52 @@ def actualizar_seguimiento_retiro(case_id):
 
     flash("Seguimiento de retiro y estado de reembolso actualizados correctamente.", "success")
     return redirect(url_for("dashboard.case_detail", case_id=case.id))
+
+
+@dashboard_bp.route("/caso/<int:case_id>/nota-interna", methods=["POST"])
+@login_required
+def agregar_nota_interna(case_id):
+    """Registra una nota interna de trabajo en la línea de tiempo (Chatter / Wise Notes)."""
+    case = Case.query.get_or_404(case_id)
+    nota = (request.form.get("nota_texto") or request.form.get("nota") or "").strip()
+    if not nota:
+        flash("La nota interna no puede estar vacía.", "error")
+        return redirect(url_for("dashboard.case_detail", case_id=case_id))
+
+    log_case_event(
+        case_id=case.id,
+        event_type="nota_interna",
+        title="Nota Interna",
+        description=nota,
+        user_id=current_user.id
+    )
+    db.session.commit()
+    flash("Nota interna registrada en la línea de tiempo.", "success")
+    return redirect(url_for("dashboard.case_detail", case_id=case_id))
+
+
+@dashboard_bp.route("/caso/<int:case_id>/prioridad", methods=["POST"])
+@login_required
+def cambiar_prioridad(case_id):
+    """Cambia la prioridad operativa del caso (urgente, alta, media, baja)."""
+    case = Case.query.get_or_404(case_id)
+    nueva_prioridad = request.form.get("prioridad", "media").strip().lower()
+    if nueva_prioridad not in ("urgente", "alta", "media", "baja"):
+        nueva_prioridad = "media"
+
+    vieja_prioridad = case.prioridad or "media"
+    if vieja_prioridad != nueva_prioridad:
+        case.prioridad = nueva_prioridad
+        log_case_event(
+            case_id=case.id,
+            event_type="prioridad",
+            title="Prioridad Modificada",
+            description=f"Prioridad cambiada de {vieja_prioridad.upper()} a {nueva_prioridad.upper()}.",
+            user_id=current_user.id,
+            old_val=vieja_prioridad,
+            new_val=nueva_prioridad
+        )
+        db.session.commit()
+        flash(f"Prioridad actualizada a {case.priority_badge['label']}.", "success")
+    return redirect(url_for("dashboard.case_detail", case_id=case_id))
 

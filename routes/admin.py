@@ -1,7 +1,7 @@
 import json
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_required, current_user
-from models import db, User, SheetConfig, user_sheet_assignments, Case, RolePermission
+from models import db, User, SheetConfig, user_sheet_assignments, Case, RolePermission, slugify, is_light_color, log_case_event
 from functools import wraps
 
 
@@ -143,7 +143,11 @@ def reset_password(user_id):
 @login_required
 @supervisor_or_admin_required
 def asignaciones():
-    users = User.query.filter_by(is_active_user=True).order_by(User.display_name).all()
+    # Solo mostrar usuarios que gestionan colas de Back Office (Back Office, Supervisores, Admin)
+    users = User.query.filter(
+        User.is_active_user == True,
+        User.role.in_(["agente_back", "supervisor", "admin"])
+    ).order_by(User.display_name).all()
     sheets = SheetConfig.query.filter_by(is_active=True).order_by(SheetConfig.display_name).all()
 
     # Construir matriz de asignaciones
@@ -164,7 +168,10 @@ def asignaciones():
 @login_required
 @supervisor_or_admin_required
 def guardar_asignaciones():
-    users = User.query.filter_by(is_active_user=True).all()
+    users = User.query.filter(
+        User.is_active_user == True,
+        User.role.in_(["agente_back", "supervisor", "admin"])
+    ).all()
 
     for user in users:
         # Obtener los sheet IDs marcados para este usuario
@@ -198,14 +205,29 @@ def estadisticas():
     sheets = SheetConfig.query.filter_by(is_active=True).all()
     users = User.query.filter_by(is_active_user=True).all()
 
-    # Casos por hoja
+    from sqlalchemy import func
+
+    # 1. Casos agrupados por hoja y estado en 1 sola consulta SQL
+    sheet_grouped = db.session.query(
+        Case.sheet_config_id,
+        Case.status,
+        func.count(Case.id).label("count")
+    ).group_by(Case.sheet_config_id, Case.status).all()
+
+    sheet_counts_map = {}
+    for sid, st, cnt in sheet_grouped:
+        if sid not in sheet_counts_map:
+            sheet_counts_map[sid] = {}
+        sheet_counts_map[sid][st] = cnt
+
     cases_by_sheet = []
     for sheet in sheets:
-        total = Case.query.filter_by(sheet_config_id=sheet.id).count()
-        nuevos = Case.query.filter_by(sheet_config_id=sheet.id, status="nuevo").count()
-        en_proceso = Case.query.filter_by(sheet_config_id=sheet.id, status="en_proceso").count()
-        resueltos = Case.query.filter_by(sheet_config_id=sheet.id, status="resuelto").count()
-        rechazados = Case.query.filter_by(sheet_config_id=sheet.id, status="rechazado").count()
+        counts = sheet_counts_map.get(sheet.id, {})
+        nuevos = counts.get("nuevo", 0)
+        en_proceso = counts.get("en_proceso", 0)
+        resueltos = counts.get("resuelto", 0)
+        rechazados = counts.get("rechazado", 0)
+        total = sum(counts.values())
         cases_by_sheet.append({
             "name": sheet.display_name,
             "color": sheet.color,
@@ -216,12 +238,31 @@ def estadisticas():
             "rechazados": rechazados,
         })
 
-    # Casos por agente
+    # 2. Casos agrupados por agente y estado en 1 sola consulta SQL
+    agent_grouped = db.session.query(
+        Case.assigned_to,
+        Case.status,
+        func.count(Case.id).label("count")
+    ).group_by(Case.assigned_to, Case.status).all()
+
+    agent_counts_map = {}
+    sin_asignar = 0
+    total_assigned_global = 0
+    for uid, st, cnt in agent_grouped:
+        if uid is None:
+            sin_asignar += cnt
+            continue
+        if uid not in agent_counts_map:
+            agent_counts_map[uid] = {}
+        agent_counts_map[uid][st] = cnt
+        total_assigned_global += cnt
+
     cases_by_agent = []
     for user in users:
-        total = Case.query.filter_by(assigned_to=user.id).count()
-        resueltos = Case.query.filter_by(assigned_to=user.id, status="resuelto").count()
-        rechazados = Case.query.filter_by(assigned_to=user.id, status="rechazado").count()
+        counts = agent_counts_map.get(user.id, {})
+        resueltos = counts.get("resuelto", 0)
+        rechazados = counts.get("rechazado", 0)
+        total = sum(counts.values())
         cases_by_agent.append({
             "name": user.display_name,
             "total": total,
@@ -229,8 +270,7 @@ def estadisticas():
             "rechazados": rechazados,
         })
 
-    total_global = Case.query.count()
-    sin_asignar = Case.query.filter_by(assigned_to=None).count()
+    total_global = total_assigned_global + sin_asignar
 
     return render_template(
         "admin/estadisticas.html",
@@ -302,14 +342,26 @@ def guardar_permisos():
 @login_required
 @supervisor_or_admin_required
 def tipos_casos():
+    from sqlalchemy import func, case as sql_case
     sheets = SheetConfig.query.order_by(SheetConfig.display_name).all()
+
+    # 1 sola consulta SQL optimizada con GROUP BY en vez de 2N queries individuales
+    stats = db.session.query(
+        Case.sheet_config_id,
+        func.count(Case.id).label("total"),
+        func.sum(
+            sql_case(
+                (Case.status.in_(["nuevo", "en_proceso", "reverificar", "reenviado"]), 1),
+                else_=0
+            )
+        ).label("activos")
+    ).group_by(Case.sheet_config_id).all()
+
+    counts_map = {sid: (tot or 0, act or 0) for sid, tot, act in stats}
+
     sheets_info = []
     for s in sheets:
-        total = Case.query.filter_by(sheet_config_id=s.id).count()
-        activos = Case.query.filter(
-            Case.sheet_config_id == s.id,
-            Case.status.in_(["nuevo", "en_proceso", "reverificar", "reenviado"])
-        ).count()
+        total, activos = counts_map.get(s.id, (0, 0))
         sheets_info.append({
             "sheet": s,
             "total_cases": total,
@@ -325,29 +377,71 @@ def crear_tipo_caso():
     display_name = request.form.get("display_name", "").strip()
     color = request.form.get("color", "#6366f1").strip()
     description = request.form.get("description", "").strip()
+    badge_label = request.form.get("badge_label", "").strip() or display_name
+    badge_bg = request.form.get("badge_bg", "").strip() or color
+    badge_text_color = request.form.get("badge_text_color", "").strip()
 
     if not display_name:
         flash("El nombre del tipo de caso es obligatorio.", "error")
         return redirect(url_for("admin.tipos_casos"))
 
-    # Validar unicidad de sheet_name
-    base_sheet_name = f"SOLICITUDES BGH 2026 - {display_name}"
-    sheet_name = base_sheet_name
+    # Generar slug único automático
+    base_slug = slugify(display_name)
+    slug = base_slug
+    counter = 1
+    while SheetConfig.query.filter_by(slug=slug).first() is not None:
+        counter += 1
+        slug = f"{base_slug}_{counter}"
+
+    # Nombre de hoja único
+    sheet_name = display_name
     counter = 1
     while SheetConfig.query.filter_by(sheet_name=sheet_name).first() is not None:
         counter += 1
-        sheet_name = f"{base_sheet_name} ({counter})"
+        sheet_name = f"{display_name} ({counter})"
 
-    # Obtener esquema de columnas base de una hoja existente
-    base_sheet = SheetConfig.query.first()
-    in_cols = base_sheet.input_columns if base_sheet and base_sheet.input_columns else "[]"
-    out_cols = base_sheet.output_columns if base_sheet and base_sheet.output_columns else "[]"
+    # Columnas base limpias y estandarizadas
+    in_cols = json.dumps([
+        {"key": "id_pedido", "name": "ID Pedido", "column": "A", "index": 0, "maps_to": "pedido_id", "required": True},
+        {"key": "fecha", "name": "Fecha", "column": "B", "index": 1, "maps_to": "fecha"},
+        {"key": "tienda", "name": "Tienda", "column": "C", "index": 2, "maps_to": "tienda"},
+        {"key": "solicitud", "name": "Solicitud", "column": "D", "index": 3, "maps_to": "solicitud"},
+        {"key": "observaciones", "name": "Observaciones", "column": "E", "index": 4, "type": "textarea"}
+    ], ensure_ascii=False)
+
+    out_cols = json.dumps([
+        {"key": "referencia_bo", "name": "Referencia Back Office", "column": "F", "index": 5, "type": "text"},
+        {"key": "resuelto", "name": "Resuelto", "column": "G", "index": 6, "type": "select", "options": ["", "Si", "No", "Rechazado"]},
+        {"key": "observaciones_bo", "name": "Observaciones Back Office", "column": "H", "index": 7, "type": "textarea"}
+    ], ensure_ascii=False)
+
+    if not badge_text_color:
+        badge_text_color = "#0f172a" if is_light_color(badge_bg) else "#ffffff"
+
+    sla_hours_val = request.form.get("sla_hours", "48").strip()
+    try:
+        sla_hours = int(sla_hours_val)
+        if sla_hours <= 0:
+            sla_hours = 48
+    except ValueError:
+        sla_hours = 48
+
+    default_priority = request.form.get("default_priority", "media").strip().lower()
+    if default_priority not in ("urgente", "alta", "media", "baja"):
+        default_priority = "media"
 
     sc = SheetConfig(
+        slug=slug,
         sheet_name=sheet_name,
         display_name=display_name,
         color=color or "#6366f1",
         description=description,
+        badge_label=badge_label,
+        badge_bg=badge_bg,
+        badge_text_color=badge_text_color,
+        badge_css_class=f"badge-{slug}",
+        sla_hours=sla_hours,
+        default_priority=default_priority,
         input_columns=in_cols,
         output_columns=out_cols,
         is_active=True,
@@ -376,6 +470,10 @@ def editar_tipo_caso(sheet_id):
     description = request.form.get("description", "").strip()
     is_active = request.form.get("is_active") == "1"
 
+    badge_label = request.form.get("badge_label", "").strip()
+    badge_bg = request.form.get("badge_bg", "").strip()
+    badge_text_color = request.form.get("badge_text_color", "").strip()
+
     if display_name:
         sheet.display_name = display_name
     if color:
@@ -383,9 +481,86 @@ def editar_tipo_caso(sheet_id):
     sheet.description = description
     sheet.is_active = is_active
 
+    if badge_label:
+        sheet.badge_label = badge_label
+    elif not sheet.badge_label:
+        sheet.badge_label = sheet.display_name
+
+    if badge_bg:
+        sheet.badge_bg = badge_bg
+        sheet.color = badge_bg
+    elif color:
+        sheet.badge_bg = color
+        sheet.color = color
+    else:
+        if not sheet.badge_bg:
+            sheet.badge_bg = sheet.color or "#6366f1"
+        if not sheet.color:
+            sheet.color = sheet.badge_bg
+
+    if badge_text_color:
+        sheet.badge_text_color = badge_text_color
+    else:
+        sheet.badge_text_color = "#0f172a" if is_light_color(sheet.badge_bg or sheet.color) else "#ffffff"
+
+    if not sheet.slug:
+        sheet.slug = slugify(sheet.display_name)
+
+    sla_hours_val = request.form.get("sla_hours", "").strip()
+    if sla_hours_val:
+        try:
+            val = int(sla_hours_val)
+            if val > 0:
+                sheet.sla_hours = val
+        except ValueError:
+            pass
+
+    default_priority = request.form.get("default_priority", "").strip().lower()
+    if default_priority in ("urgente", "alta", "media", "baja"):
+        sheet.default_priority = default_priority
+
     db.session.commit()
     flash(f"Tipo de caso '{sheet.display_name}' modificado correctamente.", "success")
     return redirect(url_for("admin.tipos_casos"))
+
+
+@admin_bp.route("/tipos-casos/<int:sheet_id>/columnas", methods=["GET", "POST"])
+@login_required
+@supervisor_or_admin_required
+def columnas_tipo_caso(sheet_id):
+    sheet = SheetConfig.query.get_or_404(sheet_id)
+    if request.method == "POST":
+        if request.is_json:
+            data = request.get_json()
+            input_cols = data.get("input_columns", [])
+            output_cols = data.get("output_columns", [])
+            sheet.input_columns = json.dumps(input_cols, ensure_ascii=False)
+            sheet.output_columns = json.dumps(output_cols, ensure_ascii=False)
+            db.session.commit()
+            return {"status": "ok", "message": "Columnas actualizadas correctamente"}
+        else:
+            in_cols_raw = request.form.get("input_columns", "")
+            out_cols_raw = request.form.get("output_columns", "")
+            try:
+                if in_cols_raw:
+                    json.loads(in_cols_raw)
+                    sheet.input_columns = in_cols_raw
+                if out_cols_raw:
+                    json.loads(out_cols_raw)
+                    sheet.output_columns = out_cols_raw
+                db.session.commit()
+                flash(f"Columnas de '{sheet.display_name}' actualizadas.", "success")
+            except Exception as e:
+                flash(f"Error en formato de columnas: {e}", "error")
+            return redirect(url_for("admin.tipos_casos"))
+
+    # GET
+    return {
+        "sheet_id": sheet.id,
+        "display_name": sheet.display_name,
+        "input_columns": json.loads(sheet.input_columns) if sheet.input_columns else [],
+        "output_columns": json.loads(sheet.output_columns) if sheet.output_columns else []
+    }
 
 
 @admin_bp.route("/tipos-casos/<int:sheet_id>/toggle", methods=["POST"])
@@ -407,10 +582,10 @@ def eliminar_tipo_caso(sheet_id):
     sheet = SheetConfig.query.get_or_404(sheet_id)
     reassign_to = request.form.get("reassign_to", type=int)
 
-    cases_count = Case.query.filter_by(sheet_config_id=sheet.id).count()
+    cases_to_reassign = Case.query.filter_by(sheet_config_id=sheet.id).all()
+    cases_count = len(cases_to_reassign)
     if cases_count > 0:
         if not reassign_to:
-            # Buscar tipología de respaldo (ej. 'Otros' o la primera activa disponible)
             fallback = SheetConfig.query.filter(
                 SheetConfig.id != sheet.id,
                 SheetConfig.display_name.ilike("%otros%")
@@ -423,7 +598,15 @@ def eliminar_tipo_caso(sheet_id):
                 return redirect(url_for("admin.tipos_casos"))
 
         target_sheet = SheetConfig.query.get_or_404(reassign_to)
-        Case.query.filter_by(sheet_config_id=sheet.id).update({"sheet_config_id": target_sheet.id})
+        for c in cases_to_reassign:
+            c.sheet_config_id = target_sheet.id
+            log_case_event(
+                case_id=c.id,
+                event_type="reasignacion",
+                title="Tipología Reasignada",
+                description=f"Caso transferido a '{target_sheet.display_name}' por eliminación de '{sheet.display_name}'.",
+                user_id=current_user.id,
+            )
         db.session.commit()
         flash(f"Se reasignaron automáticamente {cases_count} caso(s) a '{target_sheet.display_name}'.", "info")
 
@@ -436,3 +619,130 @@ def eliminar_tipo_caso(sheet_id):
     db.session.commit()
     flash(f"Tipo de caso '{name}' eliminado exitosamente.", "success")
     return redirect(url_for("admin.tipos_casos"))
+
+
+# ── Consola de Supervisión de Asesores (Estilo Wise CX) ──
+
+@admin_bp.route("/asesores/<int:user_id>")
+@login_required
+@supervisor_or_admin_required
+def perfil_asesor(user_id):
+    """Ficha y consola de supervisión del asesor en vivo (estilo Wise CX / Salesforce)."""
+    advisor = User.query.get_or_404(user_id)
+
+    status_filter = request.args.get("status", "").strip()
+    sheet_filter = request.args.get("sheet", "").strip()
+    search_query = request.args.get("q", "").strip()
+    page = request.args.get("page", 1, type=int)
+    per_page = 25
+
+    # Métricas de rendimiento y carga del asesor
+    total_assigned = Case.query.filter_by(assigned_to=advisor.id).count()
+    active_cases = Case.query.filter(
+        Case.assigned_to == advisor.id,
+        Case.status.in_(["nuevo", "en_proceso", "reverificar", "reenviado"])
+    ).count()
+    resolved_cases = Case.query.filter(Case.assigned_to == advisor.id, Case.status == "resuelto").count()
+    returned_cases = Case.query.filter(Case.assigned_to == advisor.id, Case.status == "reverificar").count()
+
+    quality_avg_query = db.session.query(db.func.avg(Case.quality_score)).filter(
+        Case.assigned_to == advisor.id,
+        Case.quality_score.isnot(None)
+    ).scalar()
+    quality_avg = round(float(quality_avg_query), 1) if quality_avg_query is not None else None
+
+    # Semáforo de carga activa estilo Wise
+    if active_cases == 0:
+        load_status = {"label": "Sin Carga Activa", "color": "#10b981", "bg": "rgba(16, 185, 129, 0.15)", "border": "rgba(16, 185, 129, 0.3)"}
+    elif active_cases <= 5:
+        load_status = {"label": "Carga Óptima", "color": "#38bdf8", "bg": "rgba(56, 189, 248, 0.15)", "border": "rgba(56, 189, 248, 0.3)"}
+    elif active_cases <= 15:
+        load_status = {"label": "Carga Normal", "color": "#f59e0b", "bg": "rgba(245, 158, 11, 0.15)", "border": "rgba(245, 158, 11, 0.3)"}
+    else:
+        load_status = {"label": "Carga Elevada", "color": "#ef4444", "bg": "rgba(239, 68, 68, 0.15)", "border": "rgba(239, 68, 68, 0.3)"}
+
+    # Query de casos en la bandeja del asesor
+    query = Case.query.filter_by(assigned_to=advisor.id)
+    if status_filter:
+        query = query.filter(Case.status == status_filter)
+    if sheet_filter:
+        try:
+            query = query.filter(Case.sheet_config_id == int(sheet_filter))
+        except ValueError:
+            pass
+    if search_query:
+        query = query.filter(
+            db.or_(
+                Case.pedido_id.ilike(f"%{search_query}%"),
+                Case.solicitud.ilike(f"%{search_query}%"),
+                Case.dni_cuit.ilike(f"%{search_query}%"),
+                Case.tracking.ilike(f"%{search_query}%"),
+                Case.codigo_sap.ilike(f"%{search_query}%"),
+                Case.nombre_cliente.ilike(f"%{search_query}%"),
+            )
+        )
+
+    pagination = query.options(
+        db.joinedload(Case.sheet_config)
+    ).order_by(Case.created_at.desc()).paginate(page=page, per_page=per_page, error_out=False)
+    cases = pagination.items
+
+    # Otros asesores activos para reasignación rápida de casos
+    other_agents = User.query.filter(
+        User.id != advisor.id,
+        User.is_active_user == True,
+        User.role.in_(["agente_back", "supervisor", "admin"])
+    ).order_by(User.display_name).all()
+
+    sheets = SheetConfig.query.filter_by(is_active=True).order_by(SheetConfig.display_name).all()
+
+    return render_template(
+        "admin/perfil_asesor.html",
+        advisor=advisor,
+        cases=cases,
+        pagination=pagination,
+        sheets=sheets,
+        other_agents=other_agents,
+        total_assigned=total_assigned,
+        active_cases=active_cases,
+        resolved_cases=resolved_cases,
+        returned_cases=returned_cases,
+        quality_avg=quality_avg,
+        load_status=load_status,
+        status_filter=status_filter,
+        sheet_filter=sheet_filter,
+        search_query=search_query,
+    )
+
+
+@admin_bp.route("/asesores/<int:user_id>/reasignar-caso/<int:case_id>", methods=["POST"])
+@login_required
+@supervisor_or_admin_required
+def reasignar_caso_asesor(user_id, case_id):
+    """Reasigna un caso de este asesor a otro asesor desde la consola Wise."""
+    advisor = User.query.get_or_404(user_id)
+    case = Case.query.get_or_404(case_id)
+    target_agent_id = request.form.get("target_agent_id", type=int)
+
+    if not target_agent_id:
+        flash("Debés seleccionar un asesor de destino.", "error")
+        return redirect(url_for("admin.perfil_asesor", user_id=user_id))
+
+    target_agent = User.query.get_or_404(target_agent_id)
+    old_agent_name = advisor.display_name
+    new_agent_name = target_agent.display_name
+
+    case.assigned_to = target_agent.id
+    log_case_event(
+        case_id=case.id,
+        event_type="reasignacion",
+        title="Caso Reasignado por Supervisor",
+        description=f"Transferido de {old_agent_name} a {new_agent_name} vía Consola de Supervisión Wise.",
+        user_id=current_user.id,
+        old_val=old_agent_name,
+        new_val=new_agent_name,
+    )
+    db.session.commit()
+    flash(f"Caso #{case.id} transferido exitosamente a {new_agent_name}.", "success")
+    return redirect(url_for("admin.perfil_asesor", user_id=user_id))
+

@@ -11,7 +11,7 @@
         <div>
             <h1 class="sf-page-title">🏷️ Gestor de Tipos de Casos (Tipologías)</h1>
             <p class="sf-page-subtitle">
-                Creá nuevas tipologías de reclamos y administrá las existentes con sus colores distintivos y sub-roles.
+                Creá nuevas tipologías de reclamos, personalizá sus badges y configurá las columnas de entrada y salida para Front y Back Office.
             </p>
         </div>
         <button class="btn btn-primary" onclick="openCreateModal()">
@@ -34,7 +34,9 @@
                 <tr>
                     <th>Etiqueta / Badge</th>
                     <th>Nombre de la Tipología</th>
-                    <th>Color HEX</th>
+                    <th>Slug</th>
+                    <th>SLA Objetivo</th>
+                    <th>Prioridad Defecto</th>
                     <th>Casos Totales</th>
                     <th>Casos Activos</th>
                     <th>Estado</th>
@@ -55,15 +57,29 @@
                         <div style="font-size: 0.74rem; color: var(--text-muted);">{{ s.sheet_name }}</div>
                     </td>
                     <td>
-                        <div class="flex items-center gap-2">
-                            <span style="display: inline-block; width: 16px; height: 16px; border-radius: 4px; background: {{ s.color }}; border: 1px solid rgba(255,255,255,0.2);"></span>
-                            <code>{{ s.color }}</code>
-                        </div>
+                        <code style="font-size: 0.78rem; color: #93c5fd; background: rgba(59,130,246,0.1); padding: 2px 6px; border-radius: 4px;">{{ s.slug or 'sin-slug' }}</code>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: #34d399; font-size: 0.76rem; border: 1px solid rgba(16, 185, 129, 0.3); font-weight: 600;">
+                            ⏱️ {{ s.sla_hours or 48 }}h
+                        </span>
+                    </td>
+                    <td>
+                        {% set dp = (s.default_priority or 'media')|lower %}
+                        {% if dp == 'urgente' %}
+                        <span class="badge" style="background: rgba(239, 68, 68, 0.15); color: #ef4444; font-size: 0.72rem; font-weight: 600;">🔴 Urgente</span>
+                        {% elif dp == 'alta' %}
+                        <span class="badge" style="background: rgba(249, 115, 22, 0.15); color: #f97316; font-size: 0.72rem; font-weight: 600;">🟠 Alta</span>
+                        {% elif dp == 'baja' %}
+                        <span class="badge" style="background: rgba(148, 163, 184, 0.15); color: #94a3b8; font-size: 0.72rem; font-weight: 600;">⚪ Baja</span>
+                        {% else %}
+                        <span class="badge" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6; font-size: 0.72rem; font-weight: 600;">🔵 Media</span>
+                        {% endif %}
                     </td>
                     <td style="font-weight: 600;">{{ item.total_cases }}</td>
                     <td>
                         <span class="badge {% if item.active_cases > 0 %}badge-nuevo{% else %}badge-cerrado{% endif %}">
-                            {{ item.active_cases }} pendientes
+                            {{ item.active_cases }} activos
                         </span>
                     </td>
                     <td>
@@ -74,7 +90,24 @@
                     <td style="text-align: right;">
                         <div class="flex gap-2" style="justify-content: flex-end;">
                             <button class="btn btn-secondary btn-sm"
-                                    onclick="openEditModal({{ s.id }}, '{{ s.display_name|replace("'", "\\'") }}', '{{ s.color }}', '{{ s.description|default('', true)|replace("'", "\\'") }}', {{ 'true' if s.is_active else 'false' }})"
+                                    data-id="{{ s.id }}"
+                                    data-name="{{ s.display_name|e }}"
+                                    onclick="openColumnEditorFromBtn(this)"
+                                    title="Editar columnas de entrada y salida">
+                                📋 Columnas
+                            </button>
+                            <button class="btn btn-secondary btn-sm"
+                                    data-id="{{ s.id }}"
+                                    data-name="{{ s.display_name|e }}"
+                                    data-color="{{ s.badge_style.bg }}"
+                                    data-desc="{{ (s.description or '')|e }}"
+                                    data-active="{{ 'true' if s.is_active else 'false' }}"
+                                    data-badge-label="{{ s.badge_style.label|e }}"
+                                    data-badge-bg="{{ s.badge_style.bg }}"
+                                    data-badge-text="{{ s.badge_style.color }}"
+                                    data-sla="{{ s.sla_hours or 48 }}"
+                                    data-priority="{{ s.default_priority or 'media' }}"
+                                    onclick="openEditModalFromBtn(this)"
                                     title="Editar tipología">
                                 ✏️ Editar
                             </button>
@@ -85,7 +118,10 @@
                                 </button>
                             </form>
                             <button type="button" class="btn btn-danger btn-sm"
-                                    onclick="openDeleteModal({{ s.id }}, '{{ s.display_name|replace("'", "\\'") }}', {{ item.total_cases }})"
+                                    data-id="{{ s.id }}"
+                                    data-name="{{ s.display_name|e }}"
+                                    data-cases="{{ item.total_cases }}"
+                                    onclick="openDeleteModalFromBtn(this)"
                                     title="Eliminar tipología">
                                 🗑️
                             </button>
@@ -110,20 +146,59 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Color Distintivo del Badge *</label>
-                <div class="flex items-center gap-3">
-                    <input type="color" name="color" id="create-color" value="#0284c7"
-                           style="width: 50px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
-                           onchange="updateCreatePreview()">
-                    <input type="text" id="create-color-hex" class="form-input" value="#0284c7" style="max-width: 120px;"
-                           oninput="document.getElementById('create-color').value = this.value; updateCreatePreview()">
-                    
-                    <!-- Previsualización -->
-                    <div style="margin-left: 10px;">
-                        <span id="create-preview-badge" class="badge-tipologia" style="background-color: #0284c7; color: #ffffff;">
-                            Vista Previa
-                        </span>
+                <label class="form-label">Texto del Badge</label>
+                <input type="text" name="badge_label" id="create-badge-label" class="form-input"
+                       placeholder="Texto corto que se verá en la etiqueta" oninput="updateCreatePreview()">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">Color de Fondo del Badge *</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" name="color" id="create-color" value="#0284c7"
+                               style="width: 44px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
+                               onchange="document.getElementById('create-color-hex').value = this.value; updateCreatePreview()">
+                        <input type="text" id="create-color-hex" name="badge_bg" class="form-input" value="#0284c7"
+                               oninput="document.getElementById('create-color').value = this.value; updateCreatePreview()">
                     </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Color de Texto del Badge</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" id="create-text-color-picker" value="#ffffff"
+                               style="width: 44px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
+                               onchange="document.getElementById('create-text-color-hex').value = this.value; updateCreatePreview()">
+                        <input type="text" id="create-text-color-hex" name="badge_text_color" class="form-input" value="#ffffff"
+                               placeholder="#ffffff" oninput="document.getElementById('create-text-color-picker').value = this.value; updateCreatePreview()">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group" style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                <label class="form-label" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">Previsualización del Badge en Tablas:</label>
+                <div>
+                    <span id="create-preview-badge" class="badge-tipologia" style="background-color: #0284c7; color: #ffffff;">
+                        Vista Previa
+                    </span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">⏱️ SLA Objetivo (Horas) *</label>
+                    <input type="number" name="sla_hours" id="create-sla-hours" class="form-input" value="48" min="1" max="720" required>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Tiempo de resolución límite antes de vencer (ej. 24, 48, 72h).</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">🎯 Prioridad por Defecto *</label>
+                    <select name="default_priority" id="create-default-priority" class="form-select">
+                        <option value="baja">⚪ Baja</option>
+                        <option value="media" selected>🔵 Media</option>
+                        <option value="alta">🟠 Alta</option>
+                        <option value="urgente">🔴 Urgente</option>
+                    </select>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Nivel inicial al crearse casos de esta tipología.</div>
                 </div>
             </div>
 
@@ -151,20 +226,59 @@
             </div>
 
             <div class="form-group">
-                <label class="form-label">Color Distintivo</label>
-                <div class="flex items-center gap-3">
-                    <input type="color" name="color" id="edit-color" value="#6366f1"
-                           style="width: 50px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
-                           onchange="updateEditPreview()">
-                    <input type="text" id="edit-color-hex" class="form-input" value="#6366f1" style="max-width: 120px;"
-                           oninput="document.getElementById('edit-color').value = this.value; updateEditPreview()">
-                    
-                    <!-- Previsualización -->
-                    <div style="margin-left: 10px;">
-                        <span id="edit-preview-badge" class="badge-tipologia" style="background-color: #6366f1; color: #ffffff;">
-                            Vista Previa
-                        </span>
+                <label class="form-label">Texto del Badge</label>
+                <input type="text" name="badge_label" id="edit-badge-label" class="form-input"
+                       placeholder="Texto corto en el badge" oninput="updateEditPreview()">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">Color de Fondo *</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" name="color" id="edit-color" value="#6366f1"
+                               style="width: 44px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
+                               onchange="document.getElementById('edit-color-hex').value = this.value; updateEditPreview()">
+                        <input type="text" id="edit-color-hex" name="badge_bg" class="form-input" value="#6366f1"
+                               oninput="document.getElementById('edit-color').value = this.value; updateEditPreview()">
                     </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Color de Texto</label>
+                    <div class="flex items-center gap-2">
+                        <input type="color" id="edit-text-color-picker" value="#ffffff"
+                               style="width: 44px; height: 38px; padding: 2px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border-subtle); background: #1e293b;"
+                               onchange="document.getElementById('edit-text-color-hex').value = this.value; updateEditPreview()">
+                        <input type="text" id="edit-text-color-hex" name="badge_text_color" class="form-input" value="#ffffff"
+                               placeholder="#ffffff" oninput="document.getElementById('edit-text-color-picker').value = this.value; updateEditPreview()">
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group" style="padding: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-subtle); border-radius: 8px;">
+                <label class="form-label" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;">Previsualización del Badge:</label>
+                <div>
+                    <span id="edit-preview-badge" class="badge-tipologia" style="background-color: #6366f1; color: #ffffff;">
+                        Vista Previa
+                    </span>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label class="form-label">⏱️ SLA Objetivo (Horas) *</label>
+                    <input type="number" name="sla_hours" id="edit-sla-hours" class="form-input" value="48" min="1" max="720" required>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Tiempo de resolución límite antes de vencer.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">🎯 Prioridad por Defecto *</label>
+                    <select name="default_priority" id="edit-default-priority" class="form-select">
+                        <option value="baja">⚪ Baja</option>
+                        <option value="media">🔵 Media</option>
+                        <option value="alta">🟠 Alta</option>
+                        <option value="urgente">🔴 Urgente</option>
+                    </select>
+                    <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">Nivel inicial al crearse casos de esta tipología.</div>
                 </div>
             </div>
 
@@ -185,6 +299,73 @@
                 <button type="submit" class="btn btn-primary">💾 Guardar Cambios</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- Modal: Editor Interactivo de Columnas -->
+<div class="modal-overlay" id="modal-columnas" style="align-items: flex-start; overflow-y: auto; padding: 20px 0;">
+    <div class="modal" style="max-width: 960px; width: 95%;">
+        <div class="flex justify-between items-center" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-subtle); padding-bottom: 12px;">
+            <div>
+                <h2 class="modal-title" style="margin-bottom: 4px;">📋 Editor de Columnas — <span id="col-editor-sheet-name" style="color: #60a5fa;"></span></h2>
+                <p style="font-size: 0.82rem; color: var(--text-muted); margin: 0;">Configurá qué campos se solicitan en la carga de Front y qué campos gestiona Back Office.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="closeColumnEditor()">✕ Cerrar</button>
+        </div>
+
+        <div style="margin-bottom: 20px;">
+            <div class="flex justify-between items-center" style="margin-bottom: 10px;">
+                <h3 style="font-size: 1rem; color: #f8fafc; font-weight: 700;">📥 Columnas de Entrada (Front Office)</h3>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addInputColumnRow()">＋ Agregar Campo</button>
+            </div>
+            <div class="table-wrapper" style="max-height: 280px; overflow-y: auto;">
+                <table style="width: 100%; font-size: 0.84rem;">
+                    <thead>
+                        <tr>
+                            <th style="width: 25%;">Nombre Visible</th>
+                            <th style="width: 20%;">Clave Interna (key)</th>
+                            <th style="width: 18%;">Tipo</th>
+                            <th style="width: 22%;">Mapeo a Case (maps_to)</th>
+                            <th style="width: 8%; text-align: center;">Oblig.</th>
+                            <th style="width: 7%; text-align: center;">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="input-cols-tbody">
+                        <!-- Filas dinámicas -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+            <div class="flex justify-between items-center" style="margin-bottom: 10px;">
+                <h3 style="font-size: 1rem; color: #f8fafc; font-weight: 700;">📤 Columnas de Salida (Gestión Back Office)</h3>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="addOutputColumnRow()">＋ Agregar Campo</button>
+            </div>
+            <div class="table-wrapper" style="max-height: 220px; overflow-y: auto;">
+                <table style="width: 100%; font-size: 0.84rem;">
+                    <thead>
+                        <tr>
+                            <th style="width: 30%;">Nombre Visible</th>
+                            <th style="width: 25%;">Clave Interna (key)</th>
+                            <th style="width: 20%;">Tipo</th>
+                            <th style="width: 15%;">Opciones (Select)</th>
+                            <th style="width: 10%; text-align: center;">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody id="output-cols-tbody">
+                        <!-- Filas dinámicas -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="col-editor-alert" style="display: none; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 0.85rem;"></div>
+
+        <div class="flex justify-between items-center" style="border-top: 1px solid var(--border-subtle); padding-top: 16px;">
+            <button type="button" class="btn btn-secondary" onclick="closeColumnEditor()">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="btn-save-columns" onclick="saveColumns()">💾 Guardar Configuración de Columnas</button>
+        </div>
     </div>
 </div>
 
@@ -230,6 +411,26 @@
 </div>
 
 <script>
+let currentEditingSheetId = null;
+
+function isLightColor(hex) {
+    if (!hex || typeof hex !== 'string' || hex.length < 7) return false;
+    const r = parseInt(hex.substr(1, 2), 16) || 0;
+    const g = parseInt(hex.substr(3, 2), 16) || 0;
+    const b = parseInt(hex.substr(5, 2), 16) || 0;
+    return ((0.299 * r + 0.587 * g + 0.114 * b) / 255) > 0.6;
+}
+
+function normalizeHexColor(val, fallback = '#6366f1') {
+    if (!val || typeof val !== 'string') return fallback;
+    const trimmed = val.trim();
+    if (/^#[0-9a-fA-F]{6}$/i.test(trimmed)) return trimmed;
+    if (/^#[0-9a-fA-F]{3}$/i.test(trimmed)) {
+        return '#' + trimmed[1] + trimmed[1] + trimmed[2] + trimmed[2] + trimmed[3] + trimmed[3];
+    }
+    return fallback;
+}
+
 function openCreateModal() {
     document.getElementById('modal-crear-tipo').classList.add('active');
     updateCreatePreview();
@@ -240,26 +441,73 @@ function closeCreateModal() {
 
 function updateCreatePreview() {
     const nameInput = document.getElementById('create-name');
+    const badgeLabelInput = document.getElementById('create-badge-label');
     const colorInput = document.getElementById('create-color');
-    const colorHex = document.getElementById('create-color-hex');
+    const textColorInput = document.getElementById('create-text-color-hex');
     const preview = document.getElementById('create-preview-badge');
 
-    const label = nameInput.value.trim() || 'Vista Previa';
-    const color = colorInput.value;
-    colorHex.value = color;
+    const label = badgeLabelInput.value.trim() || nameInput.value.trim() || 'Vista Previa';
+    const bg = normalizeHexColor(colorInput.value, '#0284c7');
+    let textCol = textColorInput.value.trim();
+    if (!textCol) {
+        textCol = isLightColor(bg) ? '#0f172a' : '#ffffff';
+    }
 
     preview.innerText = label;
-    preview.style.backgroundColor = color;
-    preview.style.color = isLightColor(color) ? '#0f172a' : '#ffffff';
+    preview.style.backgroundColor = bg;
+    preview.style.color = textCol;
 }
 
-function openEditModal(sheetId, name, color, desc, isActive) {
+function openEditModalFromBtn(btn) {
+    const id = btn.dataset.id;
+    const name = btn.dataset.name || '';
+    const bg = normalizeHexColor(btn.dataset.badgeBg || btn.dataset.color, '#6366f1');
+    let textCol = btn.dataset.badgeText || '';
+    if (!textCol || !textCol.startsWith('#') || textCol.length < 7) {
+        textCol = isLightColor(bg) ? '#0f172a' : '#ffffff';
+    }
+    const desc = btn.dataset.desc || '';
+    const isActive = btn.dataset.active === 'true';
+    const badgeLabel = btn.dataset.badgeLabel || name;
+    const slaHours = btn.dataset.sla || '48';
+    const defaultPriority = btn.dataset.priority || 'media';
+
+    openEditModal(id, name, bg, desc, isActive, badgeLabel, bg, textCol, slaHours, defaultPriority);
+}
+
+function openColumnEditorFromBtn(btn) {
+    const sheetId = btn.dataset.id;
+    const name = btn.dataset.name || '';
+    openColumnEditor(sheetId, name);
+}
+
+function openDeleteModalFromBtn(btn) {
+    const sheetId = parseInt(btn.dataset.id);
+    const name = btn.dataset.name || '';
+    const totalCases = parseInt(btn.dataset.cases) || 0;
+    openDeleteModal(sheetId, name, totalCases);
+}
+
+function openEditModal(sheetId, name, color, desc, isActive, badgeLabel, badgeBg, badgeTextColor, slaHours = 48, defaultPriority = 'media') {
     const form = document.getElementById('form-editar-tipo');
     form.action = `/admin/tipos-casos/${sheetId}/editar`;
 
+    const bg = normalizeHexColor(badgeBg || color, '#6366f1');
+    let textCol = badgeTextColor;
+    if (!textCol || typeof textCol !== 'string' || !textCol.startsWith('#') || textCol.length < 7) {
+        textCol = isLightColor(bg) ? '#0f172a' : '#ffffff';
+    } else {
+        textCol = textCol.substring(0, 7);
+    }
+
     document.getElementById('edit-name').value = name;
-    document.getElementById('edit-color').value = color || '#6366f1';
-    document.getElementById('edit-color-hex').value = color || '#6366f1';
+    document.getElementById('edit-badge-label').value = badgeLabel || name;
+    document.getElementById('edit-color').value = bg;
+    document.getElementById('edit-color-hex').value = bg;
+    document.getElementById('edit-text-color-picker').value = textCol;
+    document.getElementById('edit-text-color-hex').value = textCol;
+    document.getElementById('edit-sla-hours').value = slaHours || 48;
+    document.getElementById('edit-default-priority').value = defaultPriority || 'media';
     document.getElementById('edit-description').value = desc || '';
     document.getElementById('edit-active').checked = !!isActive;
 
@@ -273,13 +521,227 @@ function closeEditModal() {
 
 function updateEditPreview() {
     const name = document.getElementById('edit-name').value.trim() || 'Tipología';
-    const color = document.getElementById('edit-color').value;
-    document.getElementById('edit-color-hex').value = color;
+    const badgeLabel = document.getElementById('edit-badge-label').value.trim();
+    const bg = normalizeHexColor(document.getElementById('edit-color').value, '#6366f1');
+    const textCol = document.getElementById('edit-text-color-hex').value.trim() || (isLightColor(bg) ? '#0f172a' : '#ffffff');
     const preview = document.getElementById('edit-preview-badge');
 
-    preview.innerText = name;
-    preview.style.backgroundColor = color;
-    preview.style.color = isLightColor(color) ? '#0f172a' : '#ffffff';
+    preview.innerText = badgeLabel || name;
+    preview.style.backgroundColor = bg;
+    preview.style.color = textCol;
+}
+
+// ── Editor de Columnas ──
+const MAPS_TO_OPTIONS = [
+    { value: "", label: "— Ninguno (Campo libre) —" },
+    { value: "pedido_id", label: "ID Pedido" },
+    { value: "caso_wise", label: "ID Caso Wise CX" },
+    { value: "fecha", label: "Fecha" },
+    { value: "solicitud", label: "Solicitud" },
+    { value: "tienda", label: "Tienda" },
+    { value: "dni_cuit", label: "DNI / CUIT" },
+    { value: "tracking", label: "Nro Tracking" },
+    { value: "codigo_sap", label: "Código SAP" },
+    { value: "nombre_cliente", label: "Nombre Cliente" },
+    { value: "email_cliente", label: "Email Cliente" },
+    { value: "caso_salesforce", label: "Caso Salesforce" },
+    { value: "agente_front", label: "Agente Front" }
+];
+
+function openColumnEditor(sheetId, sheetName) {
+    currentEditingSheetId = sheetId;
+    document.getElementById('col-editor-sheet-name').innerText = sheetName;
+    document.getElementById('col-editor-alert').style.display = 'none';
+
+    // Cargar columnas actuales
+    fetch(`/admin/tipos-casos/${sheetId}/columnas`)
+        .then(r => r.json())
+        .then(data => {
+            renderColumnEditorTables(data.input_columns || [], data.output_columns || []);
+            document.getElementById('modal-columnas').classList.add('active');
+        })
+        .catch(err => {
+            alert('Error al cargar columnas: ' + err);
+        });
+}
+
+function closeColumnEditor() {
+    document.getElementById('modal-columnas').classList.remove('active');
+    currentEditingSheetId = null;
+}
+
+function renderColumnEditorTables(inputs, outputs) {
+    const inTbody = document.getElementById('input-cols-tbody');
+    inTbody.innerHTML = '';
+    inputs.forEach(col => appendInputRow(col));
+
+    const outTbody = document.getElementById('output-cols-tbody');
+    outTbody.innerHTML = '';
+    outputs.forEach(col => appendOutputRow(col));
+}
+
+function appendInputRow(col = {}) {
+    const inTbody = document.getElementById('input-cols-tbody');
+    const tr = document.createElement('tr');
+
+    let mapsToOptionsHtml = '';
+    MAPS_TO_OPTIONS.forEach(opt => {
+        const isSel = (col.maps_to === opt.value) ? 'selected' : '';
+        mapsToOptionsHtml += `<option value="${opt.value}" ${isSel}>${opt.label}</option>`;
+    });
+
+    tr.innerHTML = `
+        <td><input type="text" class="form-input form-input-sm col-name" value="${col.name || ''}" placeholder="ej: Nro Pedido" oninput="autoFillKey(this)"></td>
+        <td><input type="text" class="form-input form-input-sm col-key" value="${col.key || ''}" placeholder="ej: id_pedido"></td>
+        <td>
+            <select class="form-select form-input-sm col-type">
+                <option value="text" ${col.type === 'text' || !col.type ? 'selected' : ''}>Texto</option>
+                <option value="select" ${col.type === 'select' ? 'selected' : ''}>Desplegable (Select)</option>
+                <option value="textarea" ${col.type === 'textarea' ? 'selected' : ''}>Área de texto</option>
+                <option value="date" ${col.type === 'date' ? 'selected' : ''}>Fecha</option>
+                <option value="number" ${col.type === 'number' ? 'selected' : ''}>Número</option>
+            </select>
+        </td>
+        <td>
+            <select class="form-select form-input-sm col-maps-to">
+                ${mapsToOptionsHtml}
+            </select>
+        </td>
+        <td style="text-align: center;">
+            <input type="checkbox" class="col-required" ${col.required ? 'checked' : ''} style="width: 16px; height: 16px; accent-color: var(--color-primary);">
+        </td>
+        <td style="text-align: center;">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove()" title="Eliminar fila">✕</button>
+        </td>
+    `;
+    inTbody.appendChild(tr);
+}
+
+function addInputColumnRow() {
+    appendInputRow({ name: '', key: '', type: 'text', maps_to: '', required: false });
+}
+
+function appendOutputRow(col = {}) {
+    const outTbody = document.getElementById('output-cols-tbody');
+    const tr = document.createElement('tr');
+    const optionsStr = Array.isArray(col.options) ? col.options.join(', ') : (col.options || '');
+
+    tr.innerHTML = `
+        <td><input type="text" class="form-input form-input-sm col-name" value="${col.name || ''}" placeholder="ej: Resuelto" oninput="autoFillKey(this)"></td>
+        <td><input type="text" class="form-input form-input-sm col-key" value="${col.key || ''}" placeholder="ej: resuelto"></td>
+        <td>
+            <select class="form-select form-input-sm col-type">
+                <option value="text" ${col.type === 'text' || !col.type ? 'selected' : ''}>Texto</option>
+                <option value="select" ${col.type === 'select' ? 'selected' : ''}>Desplegable (Select)</option>
+                <option value="textarea" ${col.type === 'textarea' ? 'selected' : ''}>Área de texto</option>
+            </select>
+        </td>
+        <td>
+            <input type="text" class="form-input form-input-sm col-options" value="${optionsStr}" placeholder="Si, No, Pendiente">
+        </td>
+        <td style="text-align: center;">
+            <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('tr').remove()" title="Eliminar fila">✕</button>
+        </td>
+    `;
+    outTbody.appendChild(tr);
+}
+
+function addOutputColumnRow() {
+    appendOutputRow({ name: '', key: '', type: 'text', options: '' });
+}
+
+function autoFillKey(nameInput) {
+    const tr = nameInput.closest('tr');
+    const keyInput = tr.querySelector('.col-key');
+    if (!keyInput.value.trim()) {
+        const val = nameInput.value.toLowerCase().trim()
+            .replace(/[áàäâ]/g, 'a').replace(/[éèëê]/g, 'e').replace(/[íìïî]/g, 'i')
+            .replace(/[óòöô]/g, 'o').replace(/[úùüû]/g, 'u').replace(/ñ/g, 'n')
+            .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+        keyInput.value = val;
+    }
+}
+
+function saveColumns() {
+    if (!currentEditingSheetId) return;
+
+    const btnSave = document.getElementById('btn-save-columns');
+    btnSave.disabled = true;
+    btnSave.innerText = 'Guardando...';
+
+    // Recolectar inputs
+    const inputs = [];
+    document.querySelectorAll('#input-cols-tbody tr').forEach((tr, index) => {
+        const name = tr.querySelector('.col-name').value.trim();
+        let key = tr.querySelector('.col-key').value.trim();
+        if (!key && name) key = name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        const type = tr.querySelector('.col-type').value;
+        const maps_to = tr.querySelector('.col-maps-to').value;
+        const required = tr.querySelector('.col-required').checked;
+
+        if (name || key) {
+            inputs.push({
+                name: name || key,
+                key: key || `col_${index}`,
+                type: type,
+                maps_to: maps_to || null,
+                required: required,
+                index: index
+            });
+        }
+    });
+
+    // Recolectar outputs
+    const outputs = [];
+    document.querySelectorAll('#output-cols-tbody tr').forEach((tr, index) => {
+        const name = tr.querySelector('.col-name').value.trim();
+        let key = tr.querySelector('.col-key').value.trim();
+        if (!key && name) key = name.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+        const type = tr.querySelector('.col-type').value;
+        const optionsStr = tr.querySelector('.col-options').value.trim();
+        const options = optionsStr ? optionsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+        if (name || key) {
+            const outItem = {
+                name: name || key,
+                key: key || `out_${index}`,
+                type: type,
+                index: index
+            };
+            if (options.length) outItem.options = options;
+            outputs.push(outItem);
+        }
+    });
+
+    fetch(`/admin/tipos-casos/${currentEditingSheetId}/columnas`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input_columns: inputs, output_columns: outputs })
+    })
+    .then(r => r.json())
+    .then(data => {
+        btnSave.disabled = false;
+        btnSave.innerText = '💾 Guardar Configuración de Columnas';
+        const alertBox = document.getElementById('col-editor-alert');
+        alertBox.style.display = 'block';
+        alertBox.style.background = 'rgba(16, 185, 129, 0.15)';
+        alertBox.style.color = '#34d399';
+        alertBox.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+        alertBox.innerText = '✅ Columnas guardadas exitosamente.';
+        setTimeout(() => {
+            closeColumnEditor();
+        }, 1200);
+    })
+    .catch(err => {
+        btnSave.disabled = false;
+        btnSave.innerText = '💾 Guardar Configuración de Columnas';
+        const alertBox = document.getElementById('col-editor-alert');
+        alertBox.style.display = 'block';
+        alertBox.style.background = 'rgba(239, 68, 68, 0.15)';
+        alertBox.style.color = '#f87171';
+        alertBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+        alertBox.innerText = '❌ Error al guardar columnas: ' + err;
+    });
 }
 
 function openDeleteModal(sheetId, name, totalCases) {
@@ -298,7 +760,6 @@ function openDeleteModal(sheetId, name, totalCases) {
         infoNoCases.style.display = 'none';
         casesCountSpan.innerText = totalCases;
 
-        // Filtrar el select para que no permita reasignar a la misma tipología
         let firstAvailable = null;
         Array.from(selectEl.options).forEach(opt => {
             if (parseInt(opt.getAttribute('data-sheet-id')) === sheetId) {
@@ -325,7 +786,7 @@ function closeDeleteModal() {
     document.getElementById('modal-eliminar-tipo').classList.remove('active');
 }
 
-// Cierre al hacer click en el overlay oscuro
+// Cierre al hacer click en overlay
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', e => {
         if (e.target === overlay) {
@@ -334,19 +795,10 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     });
 });
 
-// Cierre con tecla Escape
 document.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
         document.querySelectorAll('.modal-overlay.active').forEach(modal => modal.classList.remove('active'));
     }
 });
-
-function isLightColor(hex) {
-    if (!hex || hex.length < 7) return false;
-    const r = parseInt(hex.substr(1, 2), 16);
-    const g = parseInt(hex.substr(3, 2), 16);
-    const b = parseInt(hex.substr(5, 2), 16);
-    return ((0.299 * r + 0.587 * g + 0.114 * b) / 255) > 0.6;
-}
 </script>
 {% endblock %}
